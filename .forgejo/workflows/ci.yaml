@@ -1,0 +1,277 @@
+name: HelpCenter Backend CI/CD (UV)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+jobs:
+  # ------------------------------------
+  # Detect file changes
+  # ------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      common: ${{ steps.changes.outputs.common || 'false' }}
+      graphql_api: ${{ steps.changes.outputs.graphql_api || 'false' }}
+      editor_api: ${{ steps.changes.outputs.editor_api || 'false' }}
+      tests: ${{ steps.changes.outputs.tests || 'false' }}
+      scripts: ${{ steps.changes.outputs.scripts || 'false' }}
+      workflows: ${{ steps.changes.outputs.workflows || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: changes
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            common:
+              - 'common/**'
+            graphql_api:
+              - 'graphql_api/**'
+            editor_api:
+              - 'editor_api/**'
+            tests:
+              - 'tests/**'
+            scripts:
+              - 'scripts/**'
+            workflows:
+              - '.github/workflows/**'
+              - '.forgejo/workflows/**'
+
+  # ------------------------------------
+  # Unit test (common)
+  # ------------------------------------
+  test-common:
+    uses: ./.forgejo/workflows/test.yaml
+    needs: changes
+    with:
+      module: common
+      test_path: tests/unit/
+    secrets: inherit
+    if: >
+      always() &&
+      (
+        needs.changes.outputs.common == 'true' ||
+        needs.changes.outputs.graphql_api == 'true' ||
+        needs.changes.outputs.editor_api == 'true' ||
+        needs.changes.outputs.tests == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      )
+
+  # ------------------------------------
+  # Integration tests
+  # ------------------------------------
+  test-graphql:
+    uses: ./.forgejo/workflows/test.yaml
+    needs: [changes, test-common]
+    with:
+      module: graphql_api
+      test_path: tests/integration/graphql_api/
+    secrets: inherit
+    if: >
+      always() &&
+      (
+        needs.changes.outputs.graphql_api == 'true' ||
+        needs.changes.outputs.common == 'true' ||
+        needs.changes.outputs.tests == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      )
+
+  test-editor:
+    uses: ./.forgejo/workflows/test.yaml
+    needs: [changes, test-common]
+    with:
+      module: editor_api
+      test_path: tests/integration/editor_api/
+    secrets: inherit
+    if: >
+      always() &&
+      (
+        needs.changes.outputs.editor_api == 'true' ||
+        needs.changes.outputs.common == 'true' ||
+        needs.changes.outputs.tests == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      )
+
+  # ------------------------------------
+  # Full integration (Postgres + Redis)
+  # ------------------------------------
+  test-integration:
+    runs-on: ubuntu-latest
+    needs: [changes, test-common, test-graphql, test-editor]
+    if: always()
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: [ "5432:5432" ]
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: [ "6379:6379" ]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-uv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
+      - name: Run DB migrations
+        run: uv run python -m alembic upgrade head
+        env:
+          TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
+          ENVIRONMENT: test
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v
+        env:
+          TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379
+          ENVIRONMENT: test
+          SECRET_KEY: test-secret-key
+          DEV_EDITOR_KEY: test-editor-key
+          GCS_BUCKET_NAME: test-bucket
+          ALLOWED_ORIGINS: http://localhost:3000
+
+  # ------------------------------------
+  # Security scan
+  # ------------------------------------
+  security:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: >
+      always() &&
+      (
+        needs.changes.outputs.common == 'true' ||
+        needs.changes.outputs.graphql_api == 'true' ||
+        needs.changes.outputs.editor_api == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      )
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-uv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
+      - name: Run Bandit security scan
+        run: uv run bandit -r common/ graphql_api/ editor_api/ -f sarif -o bandit.sarif || true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: ${{ hashFiles('bandit.sarif') != '' }}
+        with:
+          sarif_file: bandit.sarif
+
+  # ------------------------------------
+  # Build and push images
+  # ------------------------------------
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - test-common
+      - test-graphql
+      - test-editor
+      - test-integration
+      - security
+    if: >
+      github.event_name == 'push' &&
+      (
+        needs.changes.outputs.graphql_api == 'true' ||
+        needs.changes.outputs.editor_api == 'true' ||
+        needs.changes.outputs.scripts == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      ) &&
+      needs.test-common.result != 'failure' &&
+      needs.test-graphql.result != 'failure' &&
+      needs.test-editor.result != 'failure' &&
+      needs.test-integration.result != 'failure' &&
+      needs.security.result != 'failure'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.HELPCENTER_CICD }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "env_name=production" >> $GITHUB_OUTPUT
+          else
+            echo "env_name=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build GraphQL image
+        env:
+          PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          ENVIRONMENT: ${{ steps.env.outputs.env_name }}
+        run: |
+          docker build \
+            -f Dockerfile.uv \
+            -t gcr.io/${PROJECT_ID}/helpcenter-graphql-api:${{ github.sha }} \
+            -t gcr.io/${PROJECT_ID}/helpcenter-graphql-api:latest \
+            --build-arg ENVIRONMENT=${ENVIRONMENT} \
+            .
+
+      - name: Push GraphQL image
+        env:
+          PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        run: |
+          docker push gcr.io/${PROJECT_ID}/helpcenter-graphql-api:${{ github.sha }}
+          docker push gcr.io/${PROJECT_ID}/helpcenter-graphql-api:latest
+
+      - name: Build Editor image
+        env:
+          PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          ENVIRONMENT: ${{ steps.env.outputs.env_name }}
+        run: |
+          docker build \
+            -f editor_api/Dockerfile.uv \
+            -t gcr.io/${PROJECT_ID}/helpcenter-editor-api:${{ github.sha }} \
+            -t gcr.io/${PROJECT_ID}/helpcenter-editor-api:latest \
+            --build-arg ENVIRONMENT=${ENVIRONMENT} \
+            .
+
+      - name: Push Editor image
+        env:
+          PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        run: |
+          docker push gcr.io/${PROJECT_ID}/helpcenter-editor-api:${{ github.sha }}
+          docker push gcr.io/${PROJECT_ID}/helpcenter-editor-api:latest

@@ -1,0 +1,214 @@
+stages:
+  - test
+  - security
+  - deploy
+
+variables:
+  PYTHON_VERSION: "3.11"
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+
+# Cache UV dependencies
+cache:
+  key: uv-$CI_COMMIT_REF_SLUG
+  paths:
+    - .venv/
+    - ~/.cache/uv/
+
+# Test stage
+test-common:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - pip install uv
+    - uv sync
+  script:
+    - uv run flake8 common/ --max-line-length=100 --ignore=E203,W503,F821,E402
+    - uv run black --check common/ --line-length=100
+    - uv run isort --check-only common/ --profile black
+    - uv run pytest tests/unit/ -v --cov=common --cov-report=xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  rules:
+    - changes:
+        - common/**
+        - tests/unit/**
+        - .gitlab-ci.yaml
+
+test-graphql:
+  stage: test
+  image: python:3.11-slim
+  services:
+    - postgres:16
+    - redis:7-alpine
+  variables:
+    POSTGRES_DB: test_db
+    POSTGRES_USER: test
+    POSTGRES_PASSWORD: test
+    POSTGRES_HOST: postgres
+    REDIS_URL: redis://redis:6379
+    TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@postgres:5432/test_db
+    ENVIRONMENT: test
+    SECRET_KEY: test-secret-key
+    DEV_EDITOR_KEY: test-editor-key
+    GCS_BUCKET_NAME: test-bucket
+    ALLOWED_ORIGINS: http://localhost:3000
+  before_script:
+    - pip install uv
+    - uv sync
+    - uv run python -m alembic upgrade head
+  script:
+    - uv run flake8 graphql_api/ --max-line-length=100 --ignore=E203,W503,F821,E402
+    - uv run black --check graphql_api/ --line-length=100
+    - uv run isort --check-only graphql_api/ --profile black
+    - uv run pytest tests/integration/graphql_api/ -v --cov=graphql_api --cov-report=xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  rules:
+    - changes:
+        - graphql_api/**
+        - common/**
+        - tests/integration/graphql_api/**
+        - .gitlab-ci.yaml
+
+test-editor:
+  stage: test
+  image: python:3.11-slim
+  services:
+    - postgres:16
+    - redis:7-alpine
+  variables:
+    POSTGRES_DB: test_db
+    POSTGRES_USER: test
+    POSTGRES_PASSWORD: test
+    POSTGRES_HOST: postgres
+    REDIS_URL: redis://redis:6379
+    TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@postgres:5432/test_db
+    ENVIRONMENT: test
+    SECRET_KEY: test-secret-key
+    DEV_EDITOR_KEY: test-editor-key
+    GCS_BUCKET_NAME: test-bucket
+    ALLOWED_ORIGINS: http://localhost:3000
+  before_script:
+    - pip install uv
+    - uv sync
+    - uv run python -m alembic upgrade head
+  script:
+    - uv run flake8 editor_api/ --max-line-length=100 --ignore=E203,W503,F821,E402
+    - uv run black --check editor_api/ --line-length=100
+    - uv run isort --check-only editor_api/ --profile black
+    - uv run pytest tests/integration/editor_api/ -v --cov=editor_api --cov-report=xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  rules:
+    - changes:
+        - editor_api/**
+        - common/**
+        - tests/integration/editor_api/**
+        - .gitlab-ci.yaml
+
+# Security scanning
+security-scan:
+  stage: security
+  image: python:3.11-slim
+  before_script:
+    - pip install uv bandit
+    - uv sync
+  script:
+    - uv run bandit -r common/ graphql_api/ editor_api/ -f json -o bandit-report.json || true
+  artifacts:
+    reports:
+      sast: bandit-report.json
+    expire_in: 1 week
+  rules:
+    - changes:
+        - common/**
+        - graphql_api/**
+        - editor_api/**
+        - .gitlab-ci.yaml
+
+# To-do: migrate from cloud build, use deploy scripts in /scripts instead
+deploy-staging:
+  stage: deploy
+  image: google/cloud-sdk:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  before_script:
+    - echo $GCP_SERVICE_ACCOUNT_KEY | base64 -d > /tmp/gcp-key.json
+    - gcloud auth activate-service-account --key-file /tmp/gcp-key.json
+    - gcloud config set project $GCP_PROJECT_ID
+    - gcloud auth configure-docker --quiet
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "develop" ]; then
+        ENVIRONMENT=staging
+      else
+        ENVIRONMENT=production
+      fi
+    - echo "Deploying to $ENVIRONMENT"
+    - docker build -f Dockerfile.uv -t gcr.io/$GCP_PROJECT_ID/helpcenter-graphql-api:$CI_COMMIT_SHA .
+    - docker push gcr.io/$GCP_PROJECT_ID/helpcenter-graphql-api:$CI_COMMIT_SHA
+    - |
+      gcloud run deploy helpcenter-graphql-api-$ENVIRONMENT \
+        --image gcr.io/$GCP_PROJECT_ID/helpcenter-graphql-api:$CI_COMMIT_SHA \
+        --region $GCP_REGION \
+        --platform managed \
+        --allow-unauthenticated \
+        --set-env-vars="ENVIRONMENT=$ENVIRONMENT,DATABASE_URL_ASYNC=$DATABASE_URL_ASYNC,REDIS_URL=$REDIS_URL,SECRET_KEY=$SECRET_KEY,DEV_EDITOR_KEY=$DEV_EDITOR_KEY,GCS_BUCKET_NAME=$GCS_BUCKET_NAME,HELPCENTER_GCS=$HELPCENTER_GCS,ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
+  environment:
+    name: staging
+    url: https://helpcenter-graphql-api-staging-$GCP_REGION-$GCP_PROJECT_ID.a.run.app
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Deploy to production
+deploy-production:
+  stage: deploy
+  image: google/cloud-sdk:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  before_script:
+    - echo $GCP_SERVICE_ACCOUNT_KEY | base64 -d > /tmp/gcp-key.json
+    - gcloud auth activate-service-account --key-file /tmp/gcp-key.json
+    - gcloud config set project $GCP_PROJECT_ID
+    - gcloud auth configure-docker --quiet
+  script:
+    - echo "Deploying to production"
+    - docker build -f Dockerfile.uv -t gcr.io/$GCP_PROJECT_ID/helpcenter-graphql-api:$CI_COMMIT_SHA .
+    - docker push gcr.io/$GCP_PROJECT_ID/helpcenter-graphql-api:$CI_COMMIT_SHA
+    - |
+      gcloud run deploy helpcenter-graphql-api-production \
+        --image gcr.io/$GCP_PROJECT_ID/helpcenter-graphql-api:$CI_COMMIT_SHA \
+        --region $GCP_REGION \
+        --platform managed \
+        --allow-unauthenticated \
+        --set-env-vars="ENVIRONMENT=production,DATABASE_URL_ASYNC=$DATABASE_URL_ASYNC,REDIS_URL=$REDIS_URL,SECRET_KEY=$SECRET_KEY,DEV_EDITOR_KEY=$DEV_EDITOR_KEY,GCS_BUCKET_NAME=$GCS_BUCKET_NAME,HELPCENTER_GCS=$HELPCENTER_GCS,ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
+  environment:
+    name: production
+    url: https://helpcenter-graphql-api-production-$GCP_REGION-$GCP_PROJECT_ID.a.run.app
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: manual

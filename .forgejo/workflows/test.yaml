@@ -1,0 +1,61 @@
+name: Reusable Test
+
+on:
+  workflow_call:
+    inputs:
+      module:
+        required: true
+        type: string
+      test_path:
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports: [ "5432:5432" ]
+      redis:
+        image: redis:7-alpine
+        ports: [ "6379:6379" ]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-uv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
+
+      - name: Lint and format ${{ inputs.module }}
+        run: |
+          uv run flake8 ${{ inputs.module }}/ --max-line-length=100 --ignore=E203,W503,F821,E402
+          uv run black --check ${{ inputs.module }}/ --line-length=100
+          uv run isort --check-only ${{ inputs.module }}/ --profile black
+
+      - name: Run migrations for integration tests
+        if: inputs.module != 'common'
+        run: uv run python -m alembic upgrade head
+        env:
+          TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
+          ENVIRONMENT: test
+
+      - name: Run tests for ${{ inputs.module }}
+        run: |
+          uv run pytest ${{ inputs.test_path }} -v --cov=${{ inputs.module }} --cov-report=xml
+        env:
+          TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379
+          ENVIRONMENT: test
+          SECRET_KEY: test-secret-key
+          DEV_EDITOR_KEY: test-editor-key
+          GCS_BUCKET_NAME: test-bucket
+          ALLOWED_ORIGINS: http://localhost:3000
