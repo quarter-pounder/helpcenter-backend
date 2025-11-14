@@ -1,5 +1,5 @@
-pipeline:
-  test:
+steps:
+  - name: test
     image: alpine
     commands:
-      - echo "Test pipeline"
+      - echo "Woodpecker, are you alive?"
