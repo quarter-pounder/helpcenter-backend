@@ -1,5 +1,0 @@
-steps:
-  - name: test
-    image: alpine
-    commands:
-      - echo "Woodpecker, are you alive?"
