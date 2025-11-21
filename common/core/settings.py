@@ -80,6 +80,21 @@ elif NEON_DB_CONNECTION_STRING:
         print(f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}")
         conn_format = DATABASE_URL.split("://")[0] if "://" in DATABASE_URL else "unknown"
         print(f"[settings] Connection string format: {conn_format}")
+
+        # Verify connection string structure
+        if "@" in DATABASE_URL:
+            user_pass_part = DATABASE_URL.split("@")[0]
+            if "://" in user_pass_part:
+                user_pass = user_pass_part.split("://")[1]
+                if ":" in user_pass:
+                    username, password = user_pass.split(":", 1)
+                    print(f"[settings] Username extracted: {username}")
+                    print(f"[settings] Password length: {len(password)} characters")
+                    # Check for common issues
+                    if password.strip() != password:
+                        print("[settings] WARNING: Password has leading/trailing whitespace!")
+                    if not password:
+                        print("[settings] ERROR: Password is empty!")
 elif not DATABASE_URL_ASYNC:
     error_msg = "DATABASE_URL_ASYNC or NEON_DB_CONNECTION_STRING must be set"
     print(f"[settings] ERROR: {error_msg}")

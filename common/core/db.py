@@ -86,6 +86,12 @@ def _new_engine() -> AsyncEngine:
         # asyncpg doesn't support sslmode or channel_binding URL parameters
         from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+        # Verify password is present before parsing
+        original_username = url.username
+        original_password = url.password
+        print(f"[db] Original username: {original_username}")
+        print(f"[db] Original password present: {bool(original_password)}")
+
         parsed = urlparse(url_str)
         query_params = parse_qs(parsed.query)
 
@@ -94,16 +100,27 @@ def _new_engine() -> AsyncEngine:
         query_params.pop("channel_binding", None)
 
         # Rebuild URL without SSL parameters
+        # Note: parsed.netloc contains user:password@host:port, which should be preserved
         new_query = urlencode(query_params, doseq=True)
         new_parsed = parsed._replace(query=new_query)
         clean_url_str = urlunparse(new_parsed)
 
         url = make_url(clean_url_str)
+
+        # Verify password is still present after parsing
+        if url.password != original_password:
+            print(
+                f"[db] WARNING: Password may have been lost during URL parsing! "
+                f"Original password present: {bool(original_password)}, "
+                f"New password present: {bool(url.password)}"
+            )
+
         port_str = url.port or 5432
         print(
             f"[db] Cleaned URL (removed sslmode/channel_binding): "
             f"{url.drivername}://{url.username}:***@{url.host}:{port_str}/{url.database}"
         )
+        print(f"[db] Password still present after cleaning: {bool(url.password)}")
 
     try:
         engine = create_async_engine(url, connect_args=connect_args, **kwargs)
