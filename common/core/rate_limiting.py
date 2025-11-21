@@ -4,7 +4,7 @@ import os
 from typing import Callable, Optional
 
 import redis.asyncio as redis
-from fastapi import HTTPException, Request
+from fastapi import Request
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -91,7 +91,6 @@ def get_rate_limit(endpoint_type: str, action: str) -> str:
 
 class RateLimitBypass(Exception):
     """Exception to signal that rate limiting should be bypassed due to storage unavailability."""
-    pass
 
 
 def rate_limit_exceeded_handler(request: Request, exc: Exception):
@@ -193,7 +192,8 @@ class RateLimitMiddlewareWrapper(BaseHTTPMiddleware):
 
             if isinstance(exc, RedisConnectionError):
                 logger.warning(
-                    f"Rate limiting storage unavailable, bypassing rate limiting: {type(exc).__name__}",
+                    f"Rate limiting storage unavailable, bypassing rate limiting: "
+                    f"{type(exc).__name__}",
                     extra={
                         "client_ip": get_remote_address(request),
                         "endpoint": request.url.path,
@@ -220,7 +220,9 @@ def _patched_rate_limit_handler(request: Request, exc: Exception):
         )
         raise RateLimitBypass("Rate limiting storage unavailable")
 
-    if isinstance(exc, AttributeError) and "'ConnectionError' object has no attribute 'detail'" in str(exc):
+    if isinstance(exc, AttributeError) and (
+        "'ConnectionError' object has no attribute 'detail'" in str(exc)
+    ):
         logger.warning(
             "Rate limiting storage connection error, bypassing rate limiting",
             extra={
