@@ -125,8 +125,20 @@ app.include_router(graphql_app, prefix="/graphql")
 @app.middleware("http")
 async def validate_origin(request: Request, call_next):
     origin = request.headers.get("origin")
+    # Allow requests without origin (e.g., health checks, internal requests)
+    # Only validate origin if it's present
     if origin and origin not in ALLOWED_ORIGINS:
         if request.url.path == "/graphql":
+            logger = get_logger("security")
+            logger.warning(
+                f"Origin not allowed: {origin}",
+                extra={
+                    "origin": origin,
+                    "path": request.url.path,
+                    "method": request.method,
+                    "client_ip": request.client.host if request.client else None,
+                },
+            )
             return JSONResponse(
                 status_code=403, content={"error": "Forbidden", "message": "Origin not allowed"}
             )

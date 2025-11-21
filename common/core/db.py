@@ -60,26 +60,80 @@ def _new_engine() -> AsyncEngine:
     url = make_url(settings.DATABASE_URL)
     connect_args = {}
 
+    # Log connection details (without password)
+    port = url.port or 5432
+    print(f"[db] Connecting as user: {url.username}")
+    print(f"[db] Host: {url.host}, Port: {port}, Database: {url.database}")
+
     # Handle asyncpg + Neon DB SSL parameters
     if url.drivername.startswith("postgresql+asyncpg"):
         url_str = str(url)
-        # Handle Neon DB SSL requirements for asyncpg
-        if "sslmode=require" in url_str or "channel_binding=require" in url_str:
+
+        is_neon = url.host and (
+            "neon.tech" in url.host
+            or ".aws.neon.tech" in url.host
+            or "ep-" in url.host  # Neon endpoint pattern
+        )
+
+        if is_neon or "sslmode=require" in url_str or "channel_binding=require" in url_str:
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             connect_args["ssl"] = ssl_context
-            # Remove SSL parameters from URL to avoid conflicts
-            url_str = url_str.replace("?sslmode=require", "").replace("&sslmode=require", "")
-            url_str = url_str.replace("?channel_binding=require", "").replace(
-                "&channel_binding=require", ""
-            )
-            url_str = url_str.replace("?&", "?").replace("&&", "&")
-            if url_str.endswith("?") or url_str.endswith("&"):
-                url_str = url_str[:-1]
-            url = make_url(url_str)
+            print("[db] SSL context configured for Neon/secure connection")
 
-    return create_async_engine(url, connect_args=connect_args, **kwargs)
+        # Remove SSL parameters from URL to avoid conflicts with asyncpg
+        # asyncpg doesn't support sslmode or channel_binding URL parameters
+        from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+        parsed = urlparse(url_str)
+        query_params = parse_qs(parsed.query)
+
+        # Remove SSL-related parameters that asyncpg doesn't support
+        query_params.pop("sslmode", None)
+        query_params.pop("channel_binding", None)
+
+        # Rebuild URL without SSL parameters
+        new_query = urlencode(query_params, doseq=True)
+        new_parsed = parsed._replace(query=new_query)
+        clean_url_str = urlunparse(new_parsed)
+
+        url = make_url(clean_url_str)
+        port_str = url.port or 5432
+        print(
+            f"[db] Cleaned URL (removed sslmode/channel_binding): "
+            f"{url.drivername}://{url.username}:***@{url.host}:{port_str}/{url.database}"
+        )
+
+    try:
+        engine = create_async_engine(url, connect_args=connect_args, **kwargs)
+        print("[db] Engine created successfully")
+        return engine
+    except Exception as e:
+        error_type = type(e).__name__
+        error_msg = str(e)
+        print(f"[db] ERROR creating engine: {error_type}: {error_msg}")
+
+        # Log connection details without password for debugging
+        port = url.port or 5432
+        print(
+            f"[db] Connection URL (masked): "
+            f"{url.drivername}://{url.username}:***@{url.host}:{port}/{url.database}"
+        )
+
+        if (
+            "password authentication failed" in error_msg.lower()
+            or "authentication failed" in error_msg.lower()
+        ):
+            print(
+                "[db] AUTHENTICATION ERROR: Check that: "
+                "1) The password in NEON_DB_CONNECTION_STRING matches "
+                "the 'gcloud' user password in Neon, "
+                "2) The password is URL-encoded if it contains special characters, "
+                "3) The user 'gcloud' has the correct permissions in Neon"
+            )
+
+        raise
 
 
 def get_engine() -> AsyncEngine:
