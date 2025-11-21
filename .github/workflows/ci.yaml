@@ -113,14 +113,16 @@ jobs:
       always() &&
       (
         needs.test-common.result == 'success' &&
-        needs.test-graphql.result != 'failure' &&
-        needs.test-editor.result != 'failure'
+        (needs.test-graphql.result == 'success' || needs.test-graphql.result == 'skipped') &&
+        (needs.test-editor.result == 'success' || needs.test-editor.result == 'skipped')
       ) &&
       (
         needs.changes.outputs.common == 'true' ||
         needs.changes.outputs.graphql_api == 'true' ||
         needs.changes.outputs.editor_api == 'true' ||
-        needs.changes.outputs.tests == 'true'
+        needs.changes.outputs.tests == 'true' ||
+        needs.changes.outputs.scripts == 'true' ||
+        needs.changes.outputs.workflows == 'true'
       )
 
     services:
