@@ -34,15 +34,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker --quiet
+      - name: Configure Docker for Artifact Registry
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          GOOGLE_CLOUD_REGION: ${{ secrets.GOOGLE_CLOUD_REGION }}
+        run: |
+          PROJECT_ID="${{ secrets.GOOGLE_CLOUD_PROJECT }}"
+          REGION="${{ secrets.GOOGLE_CLOUD_REGION }}"
+          REPOSITORY="docker-repo"
+
+          # Create Artifact Registry repository if it doesn't exist
+          if ! gcloud artifacts repositories describe "${REPOSITORY}" \
+            --location="${REGION}" \
+            --repository-format=docker 2>/dev/null; then
+            echo "Creating Artifact Registry repository: ${REPOSITORY}"
+            gcloud artifacts repositories create "${REPOSITORY}" \
+              --repository-format=docker \
+              --location="${REGION}" \
+              --description="Docker repository for HelpCenter services" || true
+          fi
+
+          # Configure Docker authentication
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
       - name: Build and push Docker image
         id: build
         env:
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          GOOGLE_CLOUD_REGION: ${{ secrets.GOOGLE_CLOUD_REGION }}
         run: |
           PROJECT_ID="${{ secrets.GOOGLE_CLOUD_PROJECT }}"
+          REGION="${{ secrets.GOOGLE_CLOUD_REGION }}"
+          REPOSITORY="docker-repo"
           ENVIRONMENT="${{ steps.env.outputs.environment }}"
           IMAGE_TAG="${{ github.sha }}"
 
@@ -57,7 +80,7 @@ jobs:
             exit 1
           fi
 
-          IMAGE_URI="gcr.io/${PROJECT_ID}/${IMAGE_NAME}"
+          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}"
           SERVICE_NAME="${IMAGE_NAME}-${ENVIRONMENT}"
 
           echo "Building Docker image: ${IMAGE_URI}:${IMAGE_TAG}"
