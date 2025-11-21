@@ -1,10 +1,12 @@
 """Rate limiting configuration and middleware."""
 
 import os
-from typing import Optional
+from typing import Optional, Callable
 
 import redis.asyncio as redis
 from fastapi import HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -75,26 +77,45 @@ def get_rate_limit(endpoint_type: str, action: str) -> str:
     return RATE_LIMITS.get(endpoint_type, {}).get(action, "100/hour")
 
 
-async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    logger.warning(
-        f"Rate limit exceeded for {get_limiter_key_func(request)}",
-        extra={
-            "client_ip": get_remote_address(request),
-            "endpoint": request.url.path,
-            "method": request.method,
-            "limit": str(exc.detail),
-        },
-    )
+async def rate_limit_exceeded_handler(request: Request, exc: Exception):
+    limit_detail = getattr(exc, "detail", "unknown")
 
-    raise HTTPException(
-        status_code=429,
-        detail={
-            "error": "rate_limit_exceeded",
-            "message": "Too many requests. Please try again later.",
-            "retry_after": 60,
-            "limit": str(exc.detail),
-        },
-    )
+    if isinstance(exc, RateLimitExceeded):
+        logger.warning(
+            f"Rate limit exceeded for {get_limiter_key_func(request)}",
+            extra={
+                "client_ip": get_remote_address(request),
+                "endpoint": request.url.path,
+                "method": request.method,
+                "limit": str(limit_detail),
+            },
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "rate_limit_exceeded",
+                "message": "Too many requests. Please try again later.",
+                "retry_after": 60,
+                "limit": str(limit_detail),
+            },
+        )
+    else:
+        logger.error(
+            f"Rate limiting error (non-rate-limit exception): {type(exc).__name__}",
+            extra={
+                "client_ip": get_remote_address(request),
+                "endpoint": request.url.path,
+                "method": request.method,
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": "An internal error occurred",
+            },
+        )
 
 
 def rate_limit_graphql_query():
@@ -135,9 +156,34 @@ def rate_limit_health():
     return limiter.limit(get_rate_limit("health", "check"))
 
 
+class RateLimitMiddlewareWrapper(BaseHTTPMiddleware):
+    """Wrapper middleware to handle connection errors in rate limiting gracefully."""
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            from redis.exceptions import ConnectionError as RedisConnectionError
+            if isinstance(exc, RedisConnectionError) or (
+                isinstance(exc, AttributeError) and "'ConnectionError' object has no attribute 'detail'" in str(exc)
+            ):
+                logger.warning(
+                    f"Rate limiting storage unavailable, allowing request: {type(exc).__name__}",
+                    extra={
+                        "client_ip": get_remote_address(request),
+                        "endpoint": request.url.path,
+                        "method": request.method,
+                        "error": str(exc),
+                    },
+                )
+                return await call_next(request)
+            raise
+
+
 def setup_rate_limiting(app):
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_middleware(RateLimitMiddlewareWrapper)
     app.add_middleware(SlowAPIMiddleware)
     logger.info("Rate limiting middleware configured")
 
