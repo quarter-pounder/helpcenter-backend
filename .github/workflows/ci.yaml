@@ -2,9 +2,9 @@ name: HelpCenter Backend CI/CD (UV)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ dev ]
 
 env:
   PYTHON_VERSION: '3.11'
