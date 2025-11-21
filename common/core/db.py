@@ -91,6 +91,15 @@ def _new_engine() -> AsyncEngine:
         original_password = url.password
         print(f"[db] Original username: {original_username}")
         print(f"[db] Original password present: {bool(original_password)}")
+        if original_password:
+            print(f"[db] Original password length: {len(original_password)}")
+            # Check for common issues
+            if original_password != original_password.strip():
+                print("[db] WARNING: Password has leading/trailing whitespace!")
+            # Show first and last char (for debugging, not full password)
+            print(
+                f"[db] Password starts: '{original_password[0]}', ends: '{original_password[-1]}'"
+            )
 
         parsed = urlparse(url_str)
         query_params = parse_qs(parsed.query)
@@ -110,10 +119,12 @@ def _new_engine() -> AsyncEngine:
         # Verify password is still present after parsing
         if url.password != original_password:
             print(
-                f"[db] WARNING: Password may have been lost during URL parsing! "
-                f"Original password present: {bool(original_password)}, "
-                f"New password present: {bool(url.password)}"
+                f"[db] WARNING: Password changed during URL parsing! "
+                f"Original length: {len(original_password) if original_password else 0}, "
+                f"New length: {len(url.password) if url.password else 0}"
             )
+        elif url.password:
+            print(f"[db] Password preserved after URL cleaning, length: {len(url.password)}")
 
         port_str = url.port or 5432
         print(
