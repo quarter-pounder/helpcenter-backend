@@ -86,14 +86,8 @@ def _new_engine() -> AsyncEngine:
         original_password = url.password
         print(f"[db] Original username: {original_username}")
         print(f"[db] Original password present: {bool(original_password)}")
-        if original_password:
-            print(f"[db] Original password length: {len(original_password)}")
-            if original_password != original_password.strip():
-                print("[db] WARNING: Password has leading/trailing whitespace!")
-            print(
-                f"[db] Password starts: '{original_password[0]}', "
-                f"ends: '{original_password[-1]}'"
-            )
+        if original_password and original_password != original_password.strip():
+            print("[db] WARNING: Password has leading/trailing whitespace!")
 
         if url.query and ("sslmode=require" in url.query or "channel_binding=require" in url.query):
             from urllib.parse import parse_qs, urlencode
@@ -109,19 +103,14 @@ def _new_engine() -> AsyncEngine:
                 url = url.set(query=None)
 
             if url.password != original_password:
-                new_password_len = len(url.password) if url.password else 0
-                print(
-                    f"[db] ERROR: Password changed during query cleaning! "
-                    f"Original length: {len(original_password) if original_password else 0}, "
-                    f"New length: {new_password_len}"
-                )
+                print("[db] ERROR: Password changed during query cleaning!")
                 print("[db] Restoring original URL to preserve password")
                 url = make_url(settings.DATABASE_URL)
                 if "?" in settings.DATABASE_URL:
                     base_url = settings.DATABASE_URL.split("?")[0]
                     url = make_url(base_url)
             elif url.password:
-                print(f"[db] Password preserved after query cleaning, length: {len(url.password)}")
+                print("[db] Password preserved after query cleaning")
 
         port_str = url.port or 5432
         print(

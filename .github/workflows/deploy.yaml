@@ -175,6 +175,23 @@ jobs:
               print("Migration failed:")
               print(f"STDOUT: {result.stdout}")
               print(f"STDERR: {result.stderr}")
+
+              stderr_lower = result.stderr.lower()
+              if "permission denied for schema public" in stderr_lower or "insufficientprivilege" in stderr_lower:
+                  print("\n" + "="*60)
+                  print("PERMISSION ERROR: Database user lacks CREATE privileges")
+                  print("="*60)
+                  print("\nTo fix this in Neon:")
+                  print("1. Connect to your Neon database as the owner/admin user")
+                  print("2. Run the following SQL commands (replace 'gcloud' with your user):")
+                  print("\n   GRANT CREATE ON SCHEMA public TO gcloud;")
+                  print("   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO gcloud;")
+                  print("   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO gcloud;")
+                  print("   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO gcloud;")
+                  print("   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO gcloud;")
+                  print("\nOr ensure you're using a user with proper permissions.")
+                  print("="*60 + "\n")
+
               sys.exit(1)
           else:
               print("Migrations completed successfully")

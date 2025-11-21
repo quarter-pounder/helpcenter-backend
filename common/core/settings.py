@@ -61,7 +61,6 @@ elif NEON_DB_HOST and NEON_DB_NAME and NEON_DB_USER and NEON_DB_PASSWORD:
         f"[settings] Using individual Neon DB variables, "
         f"connecting to: {NEON_DB_HOST}/{NEON_DB_NAME}"
     )
-    print(f"[settings] Username: {NEON_DB_USER}, " f"Password length: {len(NEON_DB_PASSWORD)}")
 elif NEON_DB_CONNECTION_STRING:
     DATABASE_URL_ASYNC = NEON_DB_CONNECTION_STRING
 
