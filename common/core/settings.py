@@ -30,11 +30,16 @@ NEON_DB_CONNECTION_STRING = os.getenv("NEON_DB_CONNECTION_STRING")
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 TEST_DATABASE_URL_ASYNC = os.getenv("TEST_DATABASE_URL_ASYNC")
 
-# Log environment variable presence (without sensitive data)
-# Use print for early debugging since logging may not be configured yet
+NEON_DB_HOST = os.getenv("NEON_DB_HOST")
+NEON_DB_NAME = os.getenv("NEON_DB_NAME")
+NEON_DB_USER = os.getenv("NEON_DB_USER")
+NEON_DB_PASSWORD = os.getenv("NEON_DB_PASSWORD")
+NEON_DB_PORT = os.getenv("NEON_DB_PORT", "5432")
+
 print(
     f"[settings] Database config - ENVIRONMENT: {ENVIRONMENT}, "
     f"NEON_DB_CONNECTION_STRING set: {bool(NEON_DB_CONNECTION_STRING)}, "
+    f"NEON_DB_HOST set: {bool(NEON_DB_HOST)}, "
     f"DATABASE_URL_ASYNC set: {bool(DATABASE_URL_ASYNC)}"
 )
 
@@ -44,11 +49,25 @@ if ENVIRONMENT == "test":
         DATABASE_URL = "postgresql+asyncpg://test:test@localhost:5432/test_db"
     else:
         DATABASE_URL = TEST_DATABASE_URL_ASYNC
+elif NEON_DB_HOST and NEON_DB_NAME and NEON_DB_USER and NEON_DB_PASSWORD:
+    from urllib.parse import quote_plus
+
+    encoded_password = quote_plus(NEON_DB_PASSWORD)
+    DATABASE_URL = (
+        f"postgresql+asyncpg://{NEON_DB_USER}:{encoded_password}"
+        f"@{NEON_DB_HOST}:{NEON_DB_PORT}/{NEON_DB_NAME}"
+    )
+    print(
+        f"[settings] Using individual Neon DB variables, "
+        f"connecting to: {NEON_DB_HOST}/{NEON_DB_NAME}"
+    )
+    print(
+        f"[settings] Username: {NEON_DB_USER}, "
+        f"Password length: {len(NEON_DB_PASSWORD)}"
+    )
 elif NEON_DB_CONNECTION_STRING:
-    # Production: Use Neon DB connection string
     DATABASE_URL_ASYNC = NEON_DB_CONNECTION_STRING
 
-    # Ensure Cloud SQL is not used
     if "/cloudsql/" in DATABASE_URL_ASYNC or "unix:" in DATABASE_URL_ASYNC:
         error_msg = (
             "NEON_DB_CONNECTION_STRING appears to be a Cloud SQL connection. "
@@ -57,13 +76,13 @@ elif NEON_DB_CONNECTION_STRING:
         print(f"[settings] ERROR: {error_msg}")
         raise ValueError(error_msg)
 
-    # Convert sync URL to async format if needed
     if DATABASE_URL_ASYNC.startswith("postgresql://"):
-        DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://", 1)
+        DATABASE_URL = DATABASE_URL_ASYNC.replace(
+            "postgresql://", "postgresql+asyncpg://", 1
+        )
     elif DATABASE_URL_ASYNC.startswith("postgresql+asyncpg://"):
         DATABASE_URL = DATABASE_URL_ASYNC
     else:
-        # If it doesn't start with postgresql://, assume it needs the async driver
         if not DATABASE_URL_ASYNC.startswith("postgresql"):
             error_msg = (
                 f"Invalid NEON_DB_CONNECTION_STRING format. "
@@ -74,36 +93,27 @@ elif NEON_DB_CONNECTION_STRING:
             raise ValueError(error_msg)
         DATABASE_URL = DATABASE_URL_ASYNC
 
-    # Log connection string (masked for security)
     if DATABASE_URL:
         masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "***"
-        print(f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}")
-        conn_format = DATABASE_URL.split("://")[0] if "://" in DATABASE_URL else "unknown"
+        print(
+            f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}"
+        )
+        conn_format = (
+            DATABASE_URL.split("://")[0] if "://" in DATABASE_URL else "unknown"
+        )
         print(f"[settings] Connection string format: {conn_format}")
-
-        # Verify connection string structure
-        if "@" in DATABASE_URL:
-            user_pass_part = DATABASE_URL.split("@")[0]
-            if "://" in user_pass_part:
-                user_pass = user_pass_part.split("://")[1]
-                if ":" in user_pass:
-                    username, password = user_pass.split(":", 1)
-                    print(f"[settings] Username extracted: {username}")
-                    print(f"[settings] Password length: {len(password)} characters")
-                    # Check for common issues
-                    if password.strip() != password:
-                        print("[settings] WARNING: Password has leading/trailing whitespace!")
-                    if not password:
-                        print("[settings] ERROR: Password is empty!")
 elif not DATABASE_URL_ASYNC:
-    error_msg = "DATABASE_URL_ASYNC or NEON_DB_CONNECTION_STRING must be set"
+    error_msg = (
+        "DATABASE_URL_ASYNC, NEON_DB_CONNECTION_STRING, or "
+        "all of NEON_DB_HOST, NEON_DB_NAME, NEON_DB_USER, NEON_DB_PASSWORD must be set"
+    )
     print(f"[settings] ERROR: {error_msg}")
     raise ValueError(error_msg)
 else:
-    # Local development: Use DATABASE_URL_ASYNC directly
-    # Convert sync URL to async format if needed
     if DATABASE_URL_ASYNC.startswith("postgresql://"):
-        DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://")
+        DATABASE_URL = DATABASE_URL_ASYNC.replace(
+            "postgresql://", "postgresql+asyncpg://"
+        )
     else:
         DATABASE_URL = DATABASE_URL_ASYNC
 
@@ -112,8 +122,9 @@ if not DATABASE_URL:
     print(f"[settings] ERROR: {error_msg}")
     raise ValueError(error_msg)
 
-# Alembic uses this for migrations (convert async URL to sync)
-ACTIVE_DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+ACTIVE_DATABASE_URL = DATABASE_URL.replace(
+    "postgresql+asyncpg://", "postgresql://"
+)
 
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
 DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))

@@ -101,18 +101,34 @@ jobs:
       - name: Validate required secrets
         env:
           NEON_DB_CONNECTION_STRING: ${{ secrets.NEON_DB_CONNECTION_STRING }}
+          NEON_DB_HOST: ${{ secrets.NEON_DB_HOST }}
+          NEON_DB_NAME: ${{ secrets.NEON_DB_NAME }}
+          NEON_DB_USER: ${{ secrets.NEON_DB_USER }}
+          NEON_DB_PASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
         run: |
-          if [ -z "$NEON_DB_CONNECTION_STRING" ]; then
-            echo "ERROR: NEON_DB_CONNECTION_STRING secret is not set or is empty"
+          if [ -n "$NEON_DB_HOST" ] && [ -n "$NEON_DB_NAME" ] && [ -n "$NEON_DB_USER" ] && [ -n "$NEON_DB_PASSWORD" ]; then
+            echo "Using individual Neon DB variables"
+            echo "NEON_DB_HOST is set"
+            echo "NEON_DB_NAME is set"
+            echo "NEON_DB_USER is set"
+            echo "NEON_DB_PASSWORD is set (length: ${#NEON_DB_PASSWORD})"
+          elif [ -n "$NEON_DB_CONNECTION_STRING" ]; then
+            echo "Using NEON_DB_CONNECTION_STRING (length: ${#NEON_DB_CONNECTION_STRING})"
+          else
+            echo "ERROR: Either NEON_DB_CONNECTION_STRING or all of NEON_DB_HOST, NEON_DB_NAME, NEON_DB_USER, NEON_DB_PASSWORD must be set"
             exit 1
           fi
-          echo "NEON_DB_CONNECTION_STRING is set (length: ${#NEON_DB_CONNECTION_STRING})"
 
       - name: Deploy to Cloud Run
         env:
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
           GOOGLE_CLOUD_REGION: ${{ secrets.GOOGLE_CLOUD_REGION }}
           NEON_DB_CONNECTION_STRING: ${{ secrets.NEON_DB_CONNECTION_STRING }}
+          NEON_DB_HOST: ${{ secrets.NEON_DB_HOST }}
+          NEON_DB_NAME: ${{ secrets.NEON_DB_NAME }}
+          NEON_DB_USER: ${{ secrets.NEON_DB_USER }}
+          NEON_DB_PASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
+          NEON_DB_PORT: ${{ secrets.NEON_DB_PORT }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           DEV_EDITOR_KEY: ${{ secrets.DEV_EDITOR_KEY }}
@@ -126,19 +142,12 @@ jobs:
           SERVICE_NAME="${{ steps.build.outputs.service_name }}"
           IMAGE_URI="${{ steps.build.outputs.image_uri }}"
 
-          # Validate NEON_DB_CONNECTION_STRING is set
-          if [ -z "$NEON_DB_CONNECTION_STRING" ]; then
-            echo "ERROR: NEON_DB_CONNECTION_STRING is not set"
-            exit 1
-          fi
-
           python3 << 'PYTHON_EOF'
           import yaml
           import os
 
           env_vars = {
               'ENVIRONMENT': os.environ.get('ENVIRONMENT', ''),
-              'NEON_DB_CONNECTION_STRING': os.environ.get('NEON_DB_CONNECTION_STRING', ''),
               'REDIS_URL': os.environ.get('REDIS_URL', ''),
               'SECRET_KEY': os.environ.get('SECRET_KEY', ''),
               'DEV_EDITOR_KEY': os.environ.get('DEV_EDITOR_KEY', ''),
@@ -147,9 +156,27 @@ jobs:
               'ALLOWED_ORIGINS': os.environ.get('ALLOWED_ORIGINS', ''),
           }
 
-          # Validate that NEON_DB_CONNECTION_STRING is not empty
-          if not env_vars.get('NEON_DB_CONNECTION_STRING'):
-              raise ValueError("NEON_DB_CONNECTION_STRING environment variable is empty")
+          neon_host = os.environ.get('NEON_DB_HOST')
+          neon_name = os.environ.get('NEON_DB_NAME')
+          neon_user = os.environ.get('NEON_DB_USER')
+          neon_password = os.environ.get('NEON_DB_PASSWORD')
+          neon_port = os.environ.get('NEON_DB_PORT', '5432')
+
+          if neon_host and neon_name and neon_user and neon_password:
+              env_vars['NEON_DB_HOST'] = neon_host
+              env_vars['NEON_DB_NAME'] = neon_name
+              env_vars['NEON_DB_USER'] = neon_user
+              env_vars['NEON_DB_PASSWORD'] = neon_password
+              env_vars['NEON_DB_PORT'] = neon_port
+              print("Using individual Neon DB variables")
+          elif os.environ.get('NEON_DB_CONNECTION_STRING'):
+              env_vars['NEON_DB_CONNECTION_STRING'] = os.environ.get('NEON_DB_CONNECTION_STRING')
+              print("Using NEON_DB_CONNECTION_STRING")
+          else:
+              raise ValueError(
+                  "Either NEON_DB_CONNECTION_STRING or all of "
+                  "NEON_DB_HOST, NEON_DB_NAME, NEON_DB_USER, NEON_DB_PASSWORD must be set"
+              )
 
           with open('/tmp/env-vars.yaml', 'w') as f:
               yaml.dump(env_vars, f, default_flow_style=False, allow_unicode=True)
@@ -178,7 +205,6 @@ jobs:
             --timeout 300 \
             --concurrency 100
 
-          # Verify environment variables and Cloud SQL configuration
           echo "Verifying deployment configuration..."
           CLOUDSQL=$(gcloud run services describe "${SERVICE_NAME}" \
             --region="${REGION}" \
@@ -190,14 +216,19 @@ jobs:
             echo "✓ Cloud SQL connections cleared"
           fi
 
-          ENV_CHECK=$(gcloud run services describe "${SERVICE_NAME}" \
+          NEON_HOST_CHECK=$(gcloud run services describe "${SERVICE_NAME}" \
             --region="${REGION}" \
-            --format="value(spec.template.spec.containers[0].env)" 2>/dev/null | grep -c "NEON_DB_CONNECTION_STRING" || echo "0")
+            --format="value(spec.template.spec.containers[0].env.NEON_DB_HOST)" 2>/dev/null || echo "")
+          NEON_CONN_CHECK=$(gcloud run services describe "${SERVICE_NAME}" \
+            --region="${REGION}" \
+            --format="value(spec.template.spec.containers[0].env.NEON_DB_CONNECTION_STRING)" 2>/dev/null || echo "")
 
-          if [ "$ENV_CHECK" -eq "0" ]; then
-            echo "WARNING: NEON_DB_CONNECTION_STRING might not be set in Cloud Run service"
-          else
+          if [ -n "$NEON_HOST_CHECK" ]; then
+            echo "✓ Individual Neon DB variables are set"
+          elif [ -n "$NEON_CONN_CHECK" ]; then
             echo "✓ NEON_DB_CONNECTION_STRING is set"
+          else
+            echo "WARNING: Neon DB configuration might not be set"
           fi
 
           rm -f /tmp/env-vars.yaml

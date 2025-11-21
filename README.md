@@ -342,7 +342,13 @@ The project includes a CI/CD pipeline with GitHub Actions and UV optimization:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `DATABASE_URL_ASYNC` | Neon DB async connection string | Yes |
+| `NEON_DB_HOST` | Neon DB hostname (preferred) | Yes* |
+| `NEON_DB_NAME` | Neon DB database name (preferred) | Yes* |
+| `NEON_DB_USER` | Neon DB username (preferred) | Yes* |
+| `NEON_DB_PASSWORD` | Neon DB password (preferred) | Yes* |
+| `NEON_DB_PORT` | Neon DB port (default: 5432) | No |
+| `NEON_DB_CONNECTION_STRING` | Neon DB connection string (fallback) | Yes* |
+| `DATABASE_URL_ASYNC` | Legacy async connection string | No |
 | `REDIS_URL` | Redis connection string | Yes |
 | `GCS_BUCKET_NAME` | Google Cloud Storage bucket | Yes |
 | `HELPCENTER_GCS` | Secret name containing GCS service account key | Yes |
@@ -351,6 +357,8 @@ The project includes a CI/CD pipeline with GitHub Actions and UV optimization:
 | `ALLOWED_ORIGINS` | CORS allowed origins | Yes |
 | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | No |
 | `ENVIRONMENT` | Environment (development, staging, production) | No |
+
+\* Either all individual `NEON_DB_*` variables OR `NEON_DB_CONNECTION_STRING` must be set.
 
 ### Google Cloud Service Accounts
 
@@ -373,15 +381,23 @@ Configure these secrets in GitHub repository settings:
 | `HELPCENTER_GCS` | Full JSON key for `helpcenter-gcs` service account | Yes |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID | Yes |
 | `GOOGLE_CLOUD_REGION` | GCP region (e.g., us-central1) | Yes |
-| `DATABASE_URL` | Neon DB connection string | Yes |
+| `NEON_DB_HOST` | Neon DB hostname (preferred) | Yes* |
+| `NEON_DB_NAME` | Neon DB database name (preferred) | Yes* |
+| `NEON_DB_USER` | Neon DB username (preferred) | Yes* |
+| `NEON_DB_PASSWORD` | Neon DB password (preferred) | Yes* |
+| `NEON_DB_PORT` | Neon DB port (default: 5432) | No |
+| `NEON_DB_CONNECTION_STRING` | Neon DB connection string (fallback) | Yes* |
 | `REDIS_URL` | Redis connection string | Yes |
 | `SECRET_KEY` | Application secret key | Yes |
-| `EDITOR_KEY` | Editor authentication key | Yes |
+| `DEV_EDITOR_KEY` | Editor authentication key | Yes |
 | `GCS_BUCKET_NAME` | Google Cloud Storage bucket name | Yes |
+| `HELPCENTER_GCS` | GCS service account JSON key | Yes |
 | `ALLOWED_ORIGINS` | CORS allowed origins | Yes |
 | `POSTGRES_USER` | Database username for CI tests | Yes |
 | `POSTGRES_PASSWORD` | Database password for CI tests | Yes |
 | `POSTGRES_DB` | Database name for CI tests | Yes |
+
+\* Either all individual `NEON_DB_*` variables OR `NEON_DB_CONNECTION_STRING` must be set.
 
 ## UV Dependency Management
 

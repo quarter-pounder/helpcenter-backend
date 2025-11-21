@@ -82,46 +82,34 @@ def _new_engine() -> AsyncEngine:
             connect_args["ssl"] = ssl_context
             print("[db] SSL context configured for Neon/secure connection")
 
-        # Remove SSL parameters from URL to avoid conflicts with asyncpg
-        # asyncpg doesn't support sslmode or channel_binding URL parameters
-        # IMPORTANT: Use string manipulation only to preserve password integrity
-        # urlparse/urlunparse can corrupt passwords with special characters
-
-        # Verify password is present before processing
         original_username = url.username
         original_password = url.password
         print(f"[db] Original username: {original_username}")
         print(f"[db] Original password present: {bool(original_password)}")
         if original_password:
             print(f"[db] Original password length: {len(original_password)}")
-            # Check for common issues
             if original_password != original_password.strip():
                 print("[db] WARNING: Password has leading/trailing whitespace!")
-            # Show first and last char (for debugging, not full password)
             print(
-                f"[db] Password starts: '{original_password[0]}', ends: '{original_password[-1]}'"
+                f"[db] Password starts: '{original_password[0]}', "
+                f"ends: '{original_password[-1]}'"
             )
 
-        # Remove SSL parameters from query string using URL object's set() method
-        # This preserves the password by working with the already-parsed URL object
-        # instead of re-parsing a string
-        if url.query and ("sslmode=require" in url.query or "channel_binding=require" in url.query):
+        if url.query and (
+            "sslmode=require" in url.query or "channel_binding=require" in url.query
+        ):
             from urllib.parse import parse_qs, urlencode
 
             query_params = parse_qs(url.query)
             query_params.pop("sslmode", None)
             query_params.pop("channel_binding", None)
 
-            # Rebuild query string
             if query_params:
                 new_query = urlencode(query_params, doseq=True)
-                # Use URL.set() to modify only the query, preserving password
                 url = url.set(query=new_query)
             else:
-                # No query params left, remove query entirely
                 url = url.set(query=None)
 
-            # Verify password is still intact
             if url.password != original_password:
                 new_password_len = len(url.password) if url.password else 0
                 print(
@@ -129,10 +117,8 @@ def _new_engine() -> AsyncEngine:
                     f"Original length: {len(original_password) if original_password else 0}, "
                     f"New length: {new_password_len}"
                 )
-                # Restore original URL if password was corrupted
                 print("[db] Restoring original URL to preserve password")
                 url = make_url(settings.DATABASE_URL)
-                # Remove query params by using base URL only
                 if "?" in settings.DATABASE_URL:
                     base_url = settings.DATABASE_URL.split("?")[0]
                     url = make_url(base_url)
@@ -155,7 +141,6 @@ def _new_engine() -> AsyncEngine:
         error_msg = str(e)
         print(f"[db] ERROR creating engine: {error_type}: {error_msg}")
 
-        # Log connection details without password for debugging
         port = url.port or 5432
         print(
             f"[db] Connection URL (masked): "
@@ -168,10 +153,9 @@ def _new_engine() -> AsyncEngine:
         ):
             print(
                 "[db] AUTHENTICATION ERROR: Check that: "
-                "1) The password in NEON_DB_CONNECTION_STRING matches "
-                "the 'gcloud' user password in Neon, "
-                "2) The password is URL-encoded if it contains special characters, "
-                "3) The user 'gcloud' has the correct permissions in Neon"
+                "1) Password matches the user password in Neon, "
+                "2) Password is URL-encoded if it contains special characters, "
+                "3) User has correct permissions in Neon"
             )
 
         raise
