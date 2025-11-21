@@ -109,31 +109,39 @@ jobs:
     needs: [changes, test-common, test-graphql, test-editor]
     if: always()
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test_db
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports: [ "5432:5432" ]
-
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports: [ "6379:6379" ]
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create Docker network
+        run: docker network create ci-net || true
+
+      - name: Start PostgreSQL
+        run: |
+          docker run --rm -d \
+            --name ci-postgres \
+            --network ci-net \
+            -e POSTGRES_PASSWORD=test \
+            -e POSTGRES_USER=test \
+            -e POSTGRES_DB=test_db \
+            -p 5432:5432 \
+            postgres:16
+
+      - name: Start Redis
+        run: |
+          docker run --rm -d \
+            --name ci-redis \
+            --network ci-net \
+            -p 6379:6379 \
+            redis:7-alpine
+
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 30 bash -c 'until docker exec ci-postgres pg_isready -U test; do sleep 1; done'
+
+      - name: Wait for Redis
+        run: |
+          timeout 30 bash -c 'until docker exec ci-redis redis-cli ping; do sleep 1; done'
+
       - uses: ./.github/actions/setup-uv
       - uses: actions/cache@v4
         with:
@@ -141,11 +149,13 @@ jobs:
             .venv
             ~/.cache/uv
           key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
+
       - name: Run DB migrations
         run: uv run python -m alembic upgrade head
         env:
           TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
           ENVIRONMENT: test
+
       - name: Run integration tests
         run: uv run pytest tests/integration/ -v
         env:
@@ -156,6 +166,12 @@ jobs:
           DEV_EDITOR_KEY: test-editor-key
           GCS_BUCKET_NAME: test-bucket
           ALLOWED_ORIGINS: http://localhost:3000
+
+      - name: Cleanup containers
+        if: always()
+        run: |
+          docker stop ci-postgres ci-redis || true
+          docker network rm ci-net || true
 
   # ------------------------------------
   # Security scan
