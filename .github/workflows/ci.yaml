@@ -136,11 +136,29 @@ jobs:
 
       - name: Wait for PostgreSQL
         run: |
-          timeout 30 bash -c 'until docker exec ci-postgres pg_isready -U test; do sleep 1; done'
+          for i in {1..30}; do
+            if docker exec ci-postgres pg_isready -U test > /dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 1
+          done
+          echo "PostgreSQL failed to start"
+          exit 1
 
       - name: Wait for Redis
         run: |
-          timeout 30 bash -c 'until docker exec ci-redis redis-cli ping; do sleep 1; done'
+          for i in {1..30}; do
+            if docker exec ci-redis redis-cli ping > /dev/null 2>&1; then
+              echo "Redis is ready"
+              exit 0
+            fi
+            echo "Waiting for Redis... ($i/30)"
+            sleep 1
+          done
+          echo "Redis failed to start"
+          exit 1
 
       - uses: ./.github/actions/setup-uv
       - uses: actions/cache@v4
@@ -151,7 +169,9 @@ jobs:
           key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
 
       - name: Run DB migrations
-        run: uv run python -m alembic upgrade head
+        run: |
+          cd graphql_api
+          uv run python -m alembic upgrade head
         env:
           TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
           ENVIRONMENT: test
