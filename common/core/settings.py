@@ -71,7 +71,9 @@ elif NEON_DB_CONNECTION_STRING:
     if DATABASE_URL:
         masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "***"
         print(f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}")
-        print(f"[settings] Connection string format: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}")
+        print(
+            f"[settings] Connection string format: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}"
+        )
 elif not DATABASE_URL_ASYNC:
     error_msg = "DATABASE_URL_ASYNC or NEON_DB_CONNECTION_STRING must be set"
     print(f"[settings] ERROR: {error_msg}")
