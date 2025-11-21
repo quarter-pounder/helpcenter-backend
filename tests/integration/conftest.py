@@ -137,5 +137,5 @@ async def async_client():
 @pytest.fixture
 def editor_headers():
     """Headers for editor API authentication."""
-    return {"x-dev-editor-key": "test-editor-key"}
+    return {"x-editor-key": "test-editor-key"}
 

@@ -11,9 +11,10 @@ from common.core.middleware import RequestLoggingMiddleware
 from common.core.rate_limiting import setup_rate_limiting
 from common.core.settings import ALLOWED_ORIGINS, ENVIRONMENT, LOG_LEVEL
 from common.domain.rest import (
-    dev_editor_router,
-    guide_editor_router,
-    media_editor_router,
+    categories_router,
+    feedback_router,
+    guides_router,
+    media_router,
 )
 
 setup_logging(LOG_LEVEL)
@@ -34,39 +35,28 @@ app.add_middleware(
 )
 
 setup_rate_limiting(app)
-app.include_router(dev_editor_router)
-app.include_router(guide_editor_router)
-app.include_router(media_editor_router)
+app.include_router(categories_router)
+app.include_router(guides_router)
+app.include_router(media_router)
+app.include_router(feedback_router)
 
 
 @app.get("/health")
 async def health_check(request: Request):
-    """Health check endpoint."""
     return {
         "status": "healthy",
         "service": "editor_api",
         "environment": ENVIRONMENT,
         "version": "1.0.0",
-        "endpoints": {
-            "dev-editor": "/dev-editor",
-            "guide-editor": "/guide-editor",
-            "media-editor": "/media-editor",
-        },
     }
 
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information."""
     return {
         "service": "HelpCenter Editor API",
         "version": "1.0.0",
         "description": "Editor API for help center content management",
         "documentation": "/docs",
         "health": "/health",
-        "endpoints": {
-            "dev-editor": "/dev-editor",
-            "guide-editor": "/guide-editor",
-            "media-editor": "/media-editor",
-        },
     }

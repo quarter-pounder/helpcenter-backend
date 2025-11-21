@@ -17,9 +17,9 @@ from ..dtos.category import (
 from .editor_guard import verify_dev_editor_key
 
 router = APIRouter(
-    prefix="/dev-editor",
+    prefix="/editor",
     dependencies=[Depends(verify_dev_editor_key)],
-    tags=["dev-editor"],
+    tags=["editor"],
 )
 
 service = CategoryService()

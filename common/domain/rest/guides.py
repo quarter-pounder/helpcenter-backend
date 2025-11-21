@@ -18,9 +18,9 @@ from ..dtos.guide import (
 from .editor_guard import verify_dev_editor_key
 
 router = APIRouter(
-    prefix="/dev-editor",
+    prefix="/editor",
     dependencies=[Depends(verify_dev_editor_key)],
-    tags=["dev-editor"],
+    tags=["editor"],
 )
 
 service = GuideService()
@@ -33,7 +33,6 @@ async def create_guide(
     payload: GuideCreateDTO,
     session: AsyncSession = Depends(get_session_dependency),
 ):
-    """Create a new guide with rich text content."""
     return await service.create_guide(session, payload)
 
 
@@ -44,7 +43,6 @@ async def list_guides(
     category_slug: str | None = Query(None, description="Filter by category slug"),
     session: AsyncSession = Depends(get_session_dependency),
 ):
-    """List guides, optionally filtered by category."""
     return await service.list_guides(session, category_slug)
 
 
@@ -55,7 +53,6 @@ async def get_guide(
     guide_id: UUID,
     session: AsyncSession = Depends(get_session_dependency),
 ):
-    """Get a guide by ID."""
     dto = await service.get_guide(session, guide_id)
     if not dto:
         raise HTTPException(404, "Guide not found")
@@ -67,7 +64,6 @@ async def get_guide(
 async def get_guide_by_slug(
     request: Request, slug: str, session: AsyncSession = Depends(get_session_dependency)
 ):
-    """Get a guide by slug."""
     dto = await service.get_guide_by_slug(session, slug)
     if not dto:
         raise HTTPException(404, "Guide not found")
@@ -82,7 +78,6 @@ async def update_guide(
     payload: GuideUpdateDTO,
     session: AsyncSession = Depends(get_session_dependency),
 ):
-    """Update a guide with rich text content."""
     return await service.update_guide(session, guide_id, payload)
 
 
@@ -91,6 +86,5 @@ async def update_guide(
 async def delete_guide(
     request: Request, guide_id: UUID, session: AsyncSession = Depends(get_session_dependency)
 ):
-    """Delete a guide."""
     await service.delete_guide(session, guide_id)
     return {"detail": "Guide deleted"}

@@ -18,7 +18,7 @@ class GuideRepository(BaseRepository[GuideModel]):
         super().__init__(GuideModel)
 
     async def create_from_dto(self, session: AsyncSession, dto: GuideCreateDTO) -> GuideModel:
-        """Create a guide from DTO with category associations."""
+        """Create a guide from DTO with category and media associations."""
         guide = GuideModel(
             title=dto.title,
             slug=dto.slug,
@@ -31,13 +31,18 @@ class GuideRepository(BaseRepository[GuideModel]):
             categories = await self._get_categories_by_ids(session, dto.category_ids)
             guide.categories = categories
 
+        # Associate with media if provided
+        if dto.media_ids:
+            media_items = await self._get_media_by_ids(session, dto.media_ids)
+            guide.media = media_items
+
         session.add(guide)
         return guide
 
     async def update_from_dto(
         self, session: AsyncSession, id: UUID, dto: GuideUpdateDTO
     ) -> Optional[GuideModel]:
-        """Update a guide from DTO with category associations."""
+        """Update a guide from DTO with category and media associations."""
         guide = await session.get(GuideModel, id)
         if not guide:
             return None
@@ -57,13 +62,18 @@ class GuideRepository(BaseRepository[GuideModel]):
             categories = await self._get_categories_by_ids(session, dto.category_ids)
             guide.categories = categories
 
+        # Update media associations if provided
+        if dto.media_ids is not None:
+            media_items = await self._get_media_by_ids(session, dto.media_ids)
+            guide.media = media_items
+
         return guide
 
     async def get_read(self, session: AsyncSession, id: UUID) -> Optional[GuideReadDTO]:
-        """Get a guide as DTO with category IDs."""
+        """Get a guide as DTO with category and media IDs."""
         stmt = (
             sa_select(GuideModel)
-            .options(selectinload(GuideModel.categories))
+            .options(selectinload(GuideModel.categories), selectinload(GuideModel.media))
             .where(GuideModel.id == id)
         )
         result = await session.execute(stmt)
@@ -81,13 +91,14 @@ class GuideRepository(BaseRepository[GuideModel]):
             created_at=guide.created_at,
             updated_at=guide.updated_at,
             category_ids=[cat.id for cat in guide.categories],
+            media_ids=[media.id for media in guide.media],
         )
 
     async def get_read_by_slug(self, session: AsyncSession, slug: str) -> Optional[GuideReadDTO]:
-        """Get a guide by slug as DTO with category IDs."""
+        """Get a guide by slug as DTO with category and media IDs."""
         stmt = (
             sa_select(GuideModel)
-            .options(selectinload(GuideModel.categories))
+            .options(selectinload(GuideModel.categories), selectinload(GuideModel.media))
             .where(GuideModel.slug == slug)
         )
         result = await session.execute(stmt)
@@ -105,13 +116,16 @@ class GuideRepository(BaseRepository[GuideModel]):
             created_at=guide.created_at,
             updated_at=guide.updated_at,
             category_ids=[cat.id for cat in guide.categories],
+            media_ids=[media.id for media in guide.media],
         )
 
     async def list_read(
         self, session: AsyncSession, category_slug: Optional[str] = None
     ) -> List[GuideReadDTO]:
         """List guides as DTOs, optionally filtered by category slug."""
-        stmt = sa_select(GuideModel).options(selectinload(GuideModel.categories))
+        stmt = sa_select(GuideModel).options(
+            selectinload(GuideModel.categories), selectinload(GuideModel.media)
+        )
 
         if category_slug:
             stmt = stmt.where(GuideModel.categories.any(CategoryModel.slug == category_slug))
@@ -129,6 +143,7 @@ class GuideRepository(BaseRepository[GuideModel]):
                 created_at=guide.created_at,
                 updated_at=guide.updated_at,
                 category_ids=[cat.id for cat in guide.categories],
+                media_ids=[media.id for media in guide.media],
             )
             for guide in guides
         ]
@@ -139,7 +154,7 @@ class GuideRepository(BaseRepository[GuideModel]):
         """List guides for a specific category."""
         stmt = (
             sa_select(GuideModel)
-            .options(selectinload(GuideModel.categories))
+            .options(selectinload(GuideModel.categories), selectinload(GuideModel.media))
             .where(GuideModel.categories.any(CategoryModel.id == category_id))
         )
         result = await session.execute(stmt)
@@ -155,6 +170,7 @@ class GuideRepository(BaseRepository[GuideModel]):
                 created_at=guide.created_at,
                 updated_at=guide.updated_at,
                 category_ids=[cat.id for cat in guide.categories],
+                media_ids=[media.id for media in guide.media],
             )
             for guide in guides
         ]
@@ -177,6 +193,17 @@ class GuideRepository(BaseRepository[GuideModel]):
             return []
 
         stmt = sa_select(CategoryModel).where(CategoryModel.id.in_(category_ids))
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+    async def _get_media_by_ids(self, session: AsyncSession, media_ids: List[UUID]) -> List:
+        """Helper to fetch media by IDs."""
+        if not media_ids:
+            return []
+
+        from ..domain.models import Media
+
+        stmt = sa_select(Media).where(Media.id.in_(media_ids))
         result = await session.execute(stmt)
         return result.scalars().all()
 

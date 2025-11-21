@@ -1,14 +1,16 @@
 """Rate limiting configuration and middleware."""
 
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 import redis.asyncio as redis
-from fastapi import HTTPException, Request
+from fastapi import Request
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from ..core.logger import get_logger
 
@@ -37,6 +39,18 @@ def get_limiter_key_func(request: Request) -> str:
     return f"ip:{client_ip}"
 
 
+def _get_storage_uri():
+    if os.getenv("ENVIRONMENT") == "test":
+        return "memory://"
+
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        logger.warning("REDIS_URL not set, using in-memory storage for rate limiting")
+        return "memory://"
+
+    return redis_url
+
+
 if os.getenv("ENVIRONMENT") == "test":
     limiter = Limiter(
         key_func=get_limiter_key_func,
@@ -46,7 +60,7 @@ if os.getenv("ENVIRONMENT") == "test":
 else:
     limiter = Limiter(
         key_func=get_limiter_key_func,
-        storage_uri=os.getenv("REDIS_URL", "memory://"),
+        storage_uri=_get_storage_uri(),
         default_limits=["1000/hour"],
     )
 
@@ -75,26 +89,35 @@ def get_rate_limit(endpoint_type: str, action: str) -> str:
     return RATE_LIMITS.get(endpoint_type, {}).get(action, "100/hour")
 
 
-async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    logger.warning(
-        f"Rate limit exceeded for {get_limiter_key_func(request)}",
-        extra={
-            "client_ip": get_remote_address(request),
-            "endpoint": request.url.path,
-            "method": request.method,
-            "limit": str(exc.detail),
-        },
-    )
+class RateLimitBypass(Exception):
+    """Exception to signal that rate limiting should be bypassed due to storage unavailability."""
 
-    raise HTTPException(
-        status_code=429,
-        detail={
-            "error": "rate_limit_exceeded",
-            "message": "Too many requests. Please try again later.",
-            "retry_after": 60,
-            "limit": str(exc.detail),
-        },
-    )
+
+def rate_limit_exceeded_handler(request: Request, exc: Exception):
+    limit_detail = getattr(exc, "detail", "unknown")
+
+    if isinstance(exc, RateLimitExceeded):
+        logger.warning(
+            f"Rate limit exceeded for {get_limiter_key_func(request)}",
+            extra={
+                "client_ip": get_remote_address(request),
+                "endpoint": request.url.path,
+                "method": request.method,
+                "limit": str(limit_detail),
+            },
+        )
+        return {"error": f"Rate limit exceeded: {limit_detail}"}, 429
+    else:
+        logger.error(
+            f"Rate limiting error (non-rate-limit exception): {type(exc).__name__}",
+            extra={
+                "client_ip": get_remote_address(request),
+                "endpoint": request.url.path,
+                "method": request.method,
+                "error": str(exc),
+            },
+        )
+        return {"error": "An internal error occurred"}, 500
 
 
 def rate_limit_graphql_query():
@@ -135,9 +158,99 @@ def rate_limit_health():
     return limiter.limit(get_rate_limit("health", "check"))
 
 
+class RateLimitMiddlewareWrapper(BaseHTTPMiddleware):
+    """Wrapper middleware to handle connection errors in rate limiting gracefully."""
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        try:
+            return await call_next(request)
+        except RateLimitBypass:
+            logger.warning(
+                "Rate limiting bypassed due to storage unavailability",
+                extra={
+                    "client_ip": get_remote_address(request),
+                    "endpoint": request.url.path,
+                    "method": request.method,
+                },
+            )
+            return await call_next(request)
+        except AttributeError as exc:
+            if "'ConnectionError' object has no attribute 'detail'" in str(exc):
+                logger.warning(
+                    "Rate limiting storage connection error, bypassing rate limiting",
+                    extra={
+                        "client_ip": get_remote_address(request),
+                        "endpoint": request.url.path,
+                        "method": request.method,
+                        "error": str(exc),
+                    },
+                )
+                return await call_next(request)
+            raise
+        except Exception as exc:
+            from redis.exceptions import ConnectionError as RedisConnectionError
+
+            if isinstance(exc, RedisConnectionError):
+                logger.warning(
+                    f"Rate limiting storage unavailable, bypassing rate limiting: "
+                    f"{type(exc).__name__}",
+                    extra={
+                        "client_ip": get_remote_address(request),
+                        "endpoint": request.url.path,
+                        "method": request.method,
+                        "error": str(exc),
+                    },
+                )
+                return await call_next(request)
+            raise
+
+
+def _patched_rate_limit_handler(request: Request, exc: Exception):
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    if isinstance(exc, RedisConnectionError):
+        logger.warning(
+            "Rate limiting storage unavailable, bypassing rate limiting",
+            extra={
+                "client_ip": get_remote_address(request),
+                "endpoint": request.url.path,
+                "method": request.method,
+                "error": str(exc),
+            },
+        )
+        raise RateLimitBypass("Rate limiting storage unavailable")
+
+    if isinstance(exc, AttributeError) and (
+        "'ConnectionError' object has no attribute 'detail'" in str(exc)
+    ):
+        logger.warning(
+            "Rate limiting storage connection error, bypassing rate limiting",
+            extra={
+                "client_ip": get_remote_address(request),
+                "endpoint": request.url.path,
+                "method": request.method,
+                "error": str(exc),
+            },
+        )
+        raise RateLimitBypass("Rate limiting storage unavailable")
+
+    limit_detail = getattr(exc, "detail", "unknown")
+
+    if isinstance(exc, RateLimitExceeded):
+        return {"error": f"Rate limit exceeded: {limit_detail}"}, 429
+
+    return {"error": "An internal error occurred"}, 500
+
+
 def setup_rate_limiting(app):
+    import slowapi.extension
+
     app.state.limiter = limiter
+    limiter.error_handler = _patched_rate_limit_handler
+    slowapi.extension._rate_limit_exceeded_handler = _patched_rate_limit_handler
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitBypass, lambda request, exc: None)
+    app.add_middleware(RateLimitMiddlewareWrapper)
     app.add_middleware(SlowAPIMiddleware)
     logger.info("Rate limiting middleware configured")
 

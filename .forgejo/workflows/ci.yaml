@@ -2,9 +2,9 @@ name: HelpCenter Backend CI/CD (UV)
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ dev, develop, test ]
   pull_request:
-    branches: [ dev ]
+    branches: [ dev, develop, test ]
 
 env:
   PYTHON_VERSION: '3.11'
@@ -45,12 +45,13 @@ jobs:
               - 'scripts/**'
             workflows:
               - '.github/workflows/**'
+              - '.forgejo/workflows/**'
 
   # ------------------------------------
   # Unit test (common)
   # ------------------------------------
   test-common:
-    uses: ./.github/workflows/test.yaml
+    uses: ./.forgejo/workflows/test.yaml
     needs: changes
     with:
       module: common
@@ -70,7 +71,7 @@ jobs:
   # Integration tests
   # ------------------------------------
   test-graphql:
-    uses: ./.github/workflows/test.yaml
+    uses: ./.forgejo/workflows/test.yaml
     needs: [changes, test-common]
     with:
       module: graphql_api
@@ -86,7 +87,7 @@ jobs:
       )
 
   test-editor:
-    uses: ./.github/workflows/test.yaml
+    uses: ./.forgejo/workflows/test.yaml
     needs: [changes, test-common]
     with:
       module: editor_api
@@ -134,7 +135,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-uv
+      - uses: ./.forgejo/actions/setup-uv
       - uses: actions/cache@v4
         with:
           path: |
@@ -174,7 +175,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-uv
+      - uses: ./.forgejo/actions/setup-uv
       - uses: actions/cache@v4
         with:
           path: |
@@ -182,54 +183,5 @@ jobs:
             ~/.cache/uv
           key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
       - name: Run Bandit security scan
-        run: uv run bandit -r common/ graphql_api/ editor_api/ -f sarif -o bandit.sarif || true
-      - uses: github/codeql-action/upload-sarif@v3
-        if: ${{ hashFiles('bandit.sarif') != '' }}
-        with:
-          sarif_file: bandit.sarif
+        run: uv run bandit -r common/ graphql_api/ editor_api/ -f json -o bandit-report.json || true
 
-  # ------------------------------------
-  # Deploy GraphQL API
-  # ------------------------------------
-  deploy-graphql:
-    needs: [changes, test-common, test-graphql, test-integration, security]
-    uses: ./.github/workflows/cloudrun-deploy.yaml
-    with:
-      service: graphql_api
-    secrets: inherit
-    if: >
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      (
-        needs.changes.outputs.graphql_api == 'true' ||
-        needs.changes.outputs.common == 'true' ||
-        needs.changes.outputs.tests == 'true' ||
-        needs.changes.outputs.scripts == 'true' ||
-        needs.changes.outputs.workflows == 'true'
-      ) &&
-      needs.test-graphql.result != 'failure' &&
-      needs.test-integration.result != 'failure' &&
-      needs.security.result != 'failure'
-
-  # ------------------------------------
-  # Deploy Editor API
-  # ------------------------------------
-  deploy-editor:
-    needs: [changes, test-common, test-editor, test-integration, security]
-    uses: ./.github/workflows/cloudrun-deploy.yaml
-    with:
-      service: editor_api
-    secrets: inherit
-    if: >
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      (
-        needs.changes.outputs.editor_api == 'true' ||
-        needs.changes.outputs.common == 'true' ||
-        needs.changes.outputs.tests == 'true' ||
-        needs.changes.outputs.scripts == 'true' ||
-        needs.changes.outputs.workflows == 'true'
-      ) &&
-      needs.test-editor.result != 'failure' &&
-      needs.test-integration.result != 'failure' &&
-      needs.security.result != 'failure'

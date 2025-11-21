@@ -19,6 +19,9 @@ class GuideCreateDTO(BaseModel):
     category_ids: Optional[List[UUID]] = Field(
         default=[], description="Category IDs to associate with this guide"
     )
+    media_ids: Optional[List[UUID]] = Field(
+        default=[], description="Media IDs to associate with this guide"
+    )
 
     @field_validator("title")
     @classmethod
@@ -49,6 +52,15 @@ class GuideCreateDTO(BaseModel):
             raise ValueError("Cannot associate more than 10 categories with a guide")
         return v
 
+    @field_validator("media_ids")
+    @classmethod
+    def validate_media_ids(cls, v):
+        if v is None:
+            return []
+        if len(v) > 20:  # Reasonable limit
+            raise ValueError("Cannot associate more than 20 media items with a guide")
+        return v
+
 
 class GuideUpdateDTO(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200, description="Guide title")
@@ -61,6 +73,9 @@ class GuideUpdateDTO(BaseModel):
     )
     category_ids: Optional[List[UUID]] = Field(
         None, description="Category IDs to associate with this guide"
+    )
+    media_ids: Optional[List[UUID]] = Field(
+        None, description="Media IDs to associate with this guide"
     )
 
     @field_validator("title")
@@ -98,6 +113,13 @@ class GuideUpdateDTO(BaseModel):
             raise ValueError("Cannot associate more than 10 categories with a guide")
         return v
 
+    @field_validator("media_ids")
+    @classmethod
+    def validate_media_ids(cls, v):
+        if v is not None and len(v) > 20:
+            raise ValueError("Cannot associate more than 20 media items with a guide")
+        return v
+
 
 class GuideReadDTO(BaseModel):
     id: UUID
@@ -108,5 +130,6 @@ class GuideReadDTO(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime]
     category_ids: List[UUID] = Field(default=[], description="Associated category IDs")
+    media_ids: List[UUID] = Field(default=[], description="Associated media IDs")
 
     model_config = ConfigDict(from_attributes=True)

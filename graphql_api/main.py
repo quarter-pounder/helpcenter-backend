@@ -122,6 +122,18 @@ async def graphql_options():
 app.include_router(graphql_app, prefix="/graphql")
 
 
+@app.middleware("http")
+async def validate_origin(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if origin and origin not in ALLOWED_ORIGINS:
+        if request.url.path == "/graphql":
+            return JSONResponse(
+                status_code=403, content={"error": "Forbidden", "message": "Origin not allowed"}
+            )
+    response = await call_next(request)
+    return response
+
+
 @app.get("/health")
 @limiter.limit("1000/hour")
 async def health_check(request: Request):

@@ -80,7 +80,7 @@ helpcenter-backend/
 - **GraphQL API**: Type-safe queries and mutations with Strawberry
 - **REST API**: Developer editor endpoints for content management
 - **Rich Text Support**: JSON-based content blocks for guides
-- **Media Management**: File upload with GCS integration
+- **Media Management**: Guide-coupled media with file upload and GCS integration
 - **Rate Limiting**: Redis-based rate limiting with different limits per endpoint
 - **Structured Logging**: JSON logs with correlation IDs and request tracking
 - **Input Validation**: Comprehensive Pydantic validation with custom validators
@@ -206,19 +206,51 @@ ENVIRONMENT=production make prod-migrate
 
 ## API Endpoints
 
-### GraphQL
+### GraphQL API (Public)
 
 - `POST /graphql` - GraphQL endpoint with rate limiting
-- Queries: `getCategories`, `getCategory`, `getGuides`, `getGuide`
-- Mutations: `submitFeedback`
+  - **Queries**:
+    - `categories` - List all categories
+    - `category(slug)` - Get category by slug
+    - `guides(categorySlug?)` - List guides (optionally filtered by category)
+    - `guide(slug)` - Get guide by slug with media
+  - **Mutations**:
+    - `submitFeedback` - Submit user feedback
 
-### REST API
+**Note**: Media is accessed through guide queries. Guides include a `media` field that returns associated media items.
 
-- `GET /health` - Health check with rate limiting
-- `POST /dev-editor/categories` - Create category (dev editor)
-- `GET /dev-editor/categories` - List categories (dev editor)
-- `POST /dev-editor/guides` - Create guide (dev editor)
-- `POST /dev-editor/media/upload` - Upload media (dev editor)
+### REST API (Editor - Private)
+
+**Authentication**: Requires `x-editor-key` header
+
+#### Categories
+- `POST /editor/categories` - Create category
+- `GET /editor/categories` - List categories
+- `GET /editor/categories/{id}` - Get category by ID
+- `PUT /editor/categories/{id}` - Update category
+- `DELETE /editor/categories/{id}` - Delete category
+
+#### Guides
+- `POST /editor/guides` - Create guide (supports `media_ids` field)
+- `GET /editor/guides` - List guides
+- `GET /editor/guides/{id}` - Get guide by ID
+- `GET /editor/guides/slug/{slug}` - Get guide by slug
+- `PUT /editor/guides/{id}` - Update guide (supports `media_ids` field)
+- `DELETE /editor/guides/{id}` - Delete guide
+
+#### Media (Guide-Coupled)
+- `POST /editor/guides/{guide_id}/media/upload` - Upload media to guide
+- `GET /editor/guides/{guide_id}/media` - List media for guide
+- `DELETE /editor/guides/{guide_id}/media/{media_id}` - Delete media from guide
+
+**Note**: All media operations are coupled with guides. Media cannot be created or accessed independently.
+
+#### Feedback
+- `GET /editor/feedback` - List all feedback
+- `GET /editor/feedback/{id}` - Get feedback by ID
+- `DELETE /editor/feedback/{id}` - Delete feedback
+
+**Note**: Feedback can only be created via GraphQL mutation (public), managed via REST (private).
 
 ## Testing
 
@@ -263,13 +295,14 @@ tests/
 
 ### Test Coverage
 
-- **Categories**: REST and GraphQL endpoints
-- **Guides**: REST and GraphQL endpoints with rich text
-- **Media**: File upload and management
-- **GraphQL**: Integration tests
-- **Health**: Health check endpoint
-- **Rate Limiting**: Rate limit enforcement
-- **Database**: Test isolation with cleanup
+- **Categories**: REST and GraphQL endpoints with full CRUD operations
+- **Guides**: REST and GraphQL endpoints with rich text and media associations
+- **Media**: Guide-coupled file upload, listing, and deletion
+- **GraphQL**: Query and mutation integration tests
+- **Health**: Health check endpoint verification
+- **Rate Limiting**: Rate limit enforcement across all endpoints
+- **Database**: Test isolation with proper cleanup and transaction management
+- **Validation**: Comprehensive input validation tests
 
 ## Deployment
 
@@ -314,7 +347,7 @@ The project includes a CI/CD pipeline with GitHub Actions and UV optimization:
 | `GCS_BUCKET_NAME` | Google Cloud Storage bucket | Yes |
 | `HELPCENTER_GCS` | Secret name containing GCS service account key | Yes |
 | `SECRET_KEY` | Application secret key | Yes |
-| `DEV_EDITOR_KEY` | Editor authentication key | Yes |
+| `EDITOR_KEY` | Editor authentication key | Yes |
 | `ALLOWED_ORIGINS` | CORS allowed origins | Yes |
 | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | No |
 | `ENVIRONMENT` | Environment (development, staging, production) | No |
@@ -343,7 +376,7 @@ Configure these secrets in GitHub repository settings:
 | `DATABASE_URL` | Neon DB connection string | Yes |
 | `REDIS_URL` | Redis connection string | Yes |
 | `SECRET_KEY` | Application secret key | Yes |
-| `DEV_EDITOR_KEY` | Editor authentication key | Yes |
+| `EDITOR_KEY` | Editor authentication key | Yes |
 | `GCS_BUCKET_NAME` | Google Cloud Storage bucket name | Yes |
 | `ALLOWED_ORIGINS` | CORS allowed origins | Yes |
 | `POSTGRES_USER` | Database username for CI tests | Yes |
@@ -435,6 +468,7 @@ In layman's terms, this stack should cover a deep exploration without a penny.
 
 - **Separated Services**: Clear separation between public GraphQL API and private Editor API
 - **Domain-Driven Design**: Clear separation of concerns with domain logic in `common/`
+- **Media Coupling**: Media resources are coupled with guides for simpler architecture and data consistency
 - **UV Integration**: Modern dependency management with lock files and dependency groups
 - **Test Strategy**: Two-tier approach with fast unit tests and comprehensive integration tests
 - **Connection Pooling**: AsyncAdaptedQueuePool for production, NullPool for tests

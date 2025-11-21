@@ -2,19 +2,20 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_graphql_media_query(client):
+async def test_graphql_media_via_guides(client):
+    """Test that media is accessible through guide queries"""
     query = """
     query {
-      media {
+      guides {
         id
-        url
-        alt
-        createdAt
-        updatedAt
-        guides {
+        title
+        slug
+        media {
           id
-          title
-          slug
+          url
+          alt
+          createdAt
+          updatedAt
         }
       }
     }
@@ -23,68 +24,69 @@ async def test_graphql_media_query(client):
     assert response.status_code == 200
     data = response.json()
     assert "data" in data
-    assert "media" in data["data"]
-    assert isinstance(data["data"]["media"], list)
-    
-    # Check structure of media items
-    for media in data["data"]["media"]:
-        assert "id" in media
-        assert "url" in media
-        assert "alt" in media
-        assert "createdAt" in media
-        assert "updatedAt" in media
-        assert "guides" in media
-        assert isinstance(media["guides"], list)
+    assert "guides" in data["data"]
+    assert isinstance(data["data"]["guides"], list)
+
+    # Check structure of guides with media
+    for guide in data["data"]["guides"]:
+        assert "id" in guide
+        assert "title" in guide
+        assert "slug" in guide
+        assert "media" in guide
+        assert isinstance(guide["media"], list)
+
+        # Check media structure if present
+        for media in guide["media"]:
+            assert "id" in media
+            assert "url" in media
+            assert "alt" in media
+            assert "createdAt" in media
+            assert "updatedAt" in media
 
 
 @pytest.mark.asyncio
-async def test_graphql_media_urls_are_valid(client):
+async def test_graphql_media_urls_via_guide(client):
+    """Test that media URLs are valid when accessed through guides"""
     query = """
-    query {
-      media {
+    query ($slug: String!) {
+      guide(slug: $slug) {
         id
-        url
-        alt
-      }
-    }
-    """
-    response = await client.post("/graphql", json={"query": query})
-    assert response.status_code == 200
-    data = response.json()
-    
-    for media in data["data"]["media"]:
-        url = media["url"]
-        assert url.startswith("http")
-        # Should be either placeholder URL or GCS URL
-        assert "placeholder.com" in url or "storage.googleapis.com" in url
-
-
-@pytest.mark.asyncio
-async def test_graphql_media_with_guides(client):
-    query = """
-    query {
-      media {
-        id
-        url
-        alt
-        guides {
+        title
+        media {
           id
-          title
-          slug
-          estimatedReadTime
+          url
+          alt
         }
       }
     }
     """
+    variables = {"slug": "getting-started-guide"}
+    response = await client.post("/graphql", json={"query": query, "variables": variables})
+    assert response.status_code == 200
+    data = response.json()
+
+    if data["data"]["guide"] and data["data"]["guide"]["media"]:
+        for media in data["data"]["guide"]["media"]:
+            url = media["url"]
+            assert url.startswith("http")
+            # Should be either placeholder URL or GCS URL
+            assert "placeholder.com" in url or "storage.googleapis.com" in url
+
+
+@pytest.mark.asyncio
+async def test_graphql_standalone_media_query_not_available(client):
+    """Test that standalone media query has been removed"""
+    query = """
+    query {
+      media {
+        id
+        url
+      }
+    }
+    """
     response = await client.post("/graphql", json={"query": query})
     assert response.status_code == 200
     data = response.json()
-    
-    for media in data["data"]["media"]:
-        assert "guides" in media
-        assert isinstance(media["guides"], list)
-        for guide in media["guides"]:
-            assert "id" in guide
-            assert "title" in guide
-            assert "slug" in guide
-            assert "estimatedReadTime" in guide
+
+    # Should have an error indicating media query doesn't exist
+    assert "errors" in data

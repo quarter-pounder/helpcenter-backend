@@ -3,11 +3,10 @@ import strawberry
 from .category import CategoryQuery
 from .feedback import FeedbackMutation
 from .guide import GuideQuery
-from .media import MediaQuery
 
 
 @strawberry.type
-class Query(CategoryQuery, GuideQuery, MediaQuery):
+class Query(CategoryQuery, GuideQuery):
     """Root Query composed of all sub-queries."""
 
 
