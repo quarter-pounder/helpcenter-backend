@@ -2,9 +2,9 @@ name: HelpCenter Backend CI/CD (UV)
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ main ]
   pull_request:
-    branches: [ dev ]
+    branches: [ main ]
 
 env:
   PYTHON_VERSION: '3.11'
@@ -78,6 +78,7 @@ jobs:
     secrets: inherit
     if: >
       always() &&
+      needs.test-common.result != 'failure' &&
       (
         needs.changes.outputs.graphql_api == 'true' ||
         needs.changes.outputs.common == 'true' ||
@@ -94,6 +95,7 @@ jobs:
     secrets: inherit
     if: >
       always() &&
+      needs.test-common.result != 'failure' &&
       (
         needs.changes.outputs.editor_api == 'true' ||
         needs.changes.outputs.common == 'true' ||
@@ -107,7 +109,19 @@ jobs:
   test-integration:
     runs-on: ubuntu-latest
     needs: [changes, test-common, test-graphql, test-editor]
-    if: always()
+    if: >
+      always() &&
+      (
+        needs.test-common.result == 'success' &&
+        needs.test-graphql.result != 'failure' &&
+        needs.test-editor.result != 'failure'
+      ) &&
+      (
+        needs.changes.outputs.common == 'true' ||
+        needs.changes.outputs.graphql_api == 'true' ||
+        needs.changes.outputs.editor_api == 'true' ||
+        needs.changes.outputs.tests == 'true'
+      )
 
     services:
       postgres:
@@ -135,12 +149,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-uv
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .venv
-            ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
       - name: Run DB migrations
         run: uv run python -m alembic upgrade head
         env:
@@ -169,18 +177,21 @@ jobs:
         needs.changes.outputs.common == 'true' ||
         needs.changes.outputs.graphql_api == 'true' ||
         needs.changes.outputs.editor_api == 'true' ||
-        needs.changes.outputs.workflows == 'true'
+        needs.changes.outputs.workflows == 'true' ||
+        needs.changes.outputs.scripts == 'true'
+      ) &&
+      !(
+        needs.changes.outputs.tests == 'true' &&
+        needs.changes.outputs.common != 'true' &&
+        needs.changes.outputs.graphql_api != 'true' &&
+        needs.changes.outputs.editor_api != 'true' &&
+        needs.changes.outputs.workflows != 'true' &&
+        needs.changes.outputs.scripts != 'true'
       )
 
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-uv
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .venv
-            ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
       - name: Run Bandit security scan
         run: uv run bandit -r common/ graphql_api/ editor_api/ -f sarif -o bandit.sarif || true
       - uses: github/codeql-action/upload-sarif@v3
