@@ -19,7 +19,7 @@ jobs:
   # Detect file changes
   # ------------------------------------
   changes:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       common: ${{ steps.changes.outputs.common || 'false' }}
       graphql_api: ${{ steps.changes.outputs.graphql_api || 'false' }}
@@ -105,7 +105,7 @@ jobs:
   # Full integration (Postgres + Redis)
   # ------------------------------------
   test-integration:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [changes, test-common, test-graphql, test-editor]
     if: always()
 
@@ -161,7 +161,7 @@ jobs:
   # Security scan
   # ------------------------------------
   security:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: >
       always() &&
