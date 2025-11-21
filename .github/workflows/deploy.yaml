@@ -119,6 +119,69 @@ jobs:
             exit 1
           fi
 
+      - name: Setup UV for migrations
+        if: inputs.service == 'graphql_api'
+        uses: ./.github/actions/setup-uv
+
+      - name: Run database migrations
+        if: inputs.service == 'graphql_api'
+        env:
+          NEON_DB_CONNECTION_STRING: ${{ secrets.NEON_DB_CONNECTION_STRING }}
+          NEON_DB_HOST: ${{ secrets.NEON_DB_HOST }}
+          NEON_DB_NAME: ${{ secrets.NEON_DB_NAME }}
+          NEON_DB_USER: ${{ secrets.NEON_DB_USER }}
+          NEON_DB_PASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
+          NEON_DB_PORT: ${{ secrets.NEON_DB_PORT }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+        run: |
+          python3 << 'PYTHON_EOF'
+          import os
+          import subprocess
+          import sys
+          from urllib.parse import quote_plus
+
+          neon_host = os.environ.get('NEON_DB_HOST')
+          neon_name = os.environ.get('NEON_DB_NAME')
+          neon_user = os.environ.get('NEON_DB_USER')
+          neon_password = os.environ.get('NEON_DB_PASSWORD')
+          neon_port = os.environ.get('NEON_DB_PORT', '5432')
+          neon_conn = os.environ.get('NEON_DB_CONNECTION_STRING')
+
+          if neon_host and neon_name and neon_user and neon_password:
+              encoded_password = quote_plus(neon_password)
+              db_url = f"postgresql+asyncpg://{neon_user}:{encoded_password}@{neon_host}:{neon_port}/{neon_name}"
+              print("Using individual Neon DB variables for migration")
+          elif neon_conn:
+              db_url = neon_conn
+              if db_url.startswith("postgresql://"):
+                  db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+              print("Using NEON_DB_CONNECTION_STRING for migration")
+          else:
+              print("ERROR: No database connection configured")
+              sys.exit(1)
+
+          os.environ['NEON_DB_CONNECTION_STRING'] = db_url
+          os.environ['ENVIRONMENT'] = os.environ.get('ENVIRONMENT', 'prod')
+
+          print("Running migrations...")
+          result = subprocess.run(
+              ['uv', 'run', 'python', '-m', 'alembic', '-c', 'graphql_api/alembic.ini', 'upgrade', 'head'],
+              cwd='.',
+              capture_output=True,
+              text=True
+          )
+
+          if result.returncode != 0:
+              print("Migration failed:")
+              print(f"STDOUT: {result.stdout}")
+              print(f"STDERR: {result.stderr}")
+              sys.exit(1)
+          else:
+              print("Migrations completed successfully")
+              if result.stdout:
+                  print(result.stdout)
+          PYTHON_EOF
+
       - name: Deploy to Cloud Run
         env:
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
