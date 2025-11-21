@@ -47,15 +47,31 @@ if ENVIRONMENT == "test":
 elif NEON_DB_CONNECTION_STRING:
     # Production: Use Neon DB connection string
     DATABASE_URL_ASYNC = NEON_DB_CONNECTION_STRING
+
+    # Ensure Cloud SQL is not used
+    if "/cloudsql/" in DATABASE_URL_ASYNC or "unix:" in DATABASE_URL_ASYNC:
+        error_msg = "NEON_DB_CONNECTION_STRING appears to be a Cloud SQL connection. Use Neon DB connection string instead."
+        print(f"[settings] ERROR: {error_msg}")
+        raise ValueError(error_msg)
+
     # Convert sync URL to async format if needed
     if DATABASE_URL_ASYNC.startswith("postgresql://"):
-        DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://")
-    else:
+        DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif DATABASE_URL_ASYNC.startswith("postgresql+asyncpg://"):
         DATABASE_URL = DATABASE_URL_ASYNC
+    else:
+        # If it doesn't start with postgresql://, assume it needs the async driver
+        if not DATABASE_URL_ASYNC.startswith("postgresql"):
+            error_msg = f"Invalid NEON_DB_CONNECTION_STRING format. Expected postgresql:// or postgresql+asyncpg://, got: {DATABASE_URL_ASYNC[:50]}..."
+            print(f"[settings] ERROR: {error_msg}")
+            raise ValueError(error_msg)
+        DATABASE_URL = DATABASE_URL_ASYNC
+
     # Log connection string (masked for security)
     if DATABASE_URL:
         masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "***"
         print(f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}")
+        print(f"[settings] Connection string format: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}")
 elif not DATABASE_URL_ASYNC:
     error_msg = "DATABASE_URL_ASYNC or NEON_DB_CONNECTION_STRING must be set"
     print(f"[settings] ERROR: {error_msg}")

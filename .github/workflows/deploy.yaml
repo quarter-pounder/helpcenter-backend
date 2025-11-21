@@ -155,6 +155,14 @@ jobs:
               yaml.dump(env_vars, f, default_flow_style=False, allow_unicode=True)
           PYTHON_EOF
 
+          # First, clear Cloud SQL connections if they exist
+          echo "Clearing any existing Cloud SQL connections..."
+          gcloud run services update "${SERVICE_NAME}" \
+            --region="${REGION}" \
+            --clear-cloudsql-instances \
+            2>/dev/null || echo "No Cloud SQL connections to clear or service doesn't exist yet"
+
+          # Deploy the service
           gcloud run deploy "${SERVICE_NAME}" \
             --image "${IMAGE_URI}" \
             --platform managed \
@@ -170,13 +178,27 @@ jobs:
             --timeout 300 \
             --concurrency 100
 
-          # Verify environment variables are set
-          echo "Verifying environment variables..."
-          gcloud run services describe "${SERVICE_NAME}" \
+          # Verify environment variables and Cloud SQL configuration
+          echo "Verifying deployment configuration..."
+          CLOUDSQL=$(gcloud run services describe "${SERVICE_NAME}" \
             --region="${REGION}" \
-            --format="value(spec.template.spec.containers[0].env)" | grep -q "NEON_DB_CONNECTION_STRING" || {
+            --format="value(spec.template.spec.containers[0].cloudSqlInstances)" 2>/dev/null || echo "")
+
+          if [ -n "$CLOUDSQL" ] && [ "$CLOUDSQL" != "" ]; then
+            echo "WARNING: Cloud SQL instances are still configured: $CLOUDSQL"
+          else
+            echo "✓ Cloud SQL connections cleared"
+          fi
+
+          ENV_CHECK=$(gcloud run services describe "${SERVICE_NAME}" \
+            --region="${REGION}" \
+            --format="value(spec.template.spec.containers[0].env)" 2>/dev/null | grep -c "NEON_DB_CONNECTION_STRING" || echo "0")
+
+          if [ "$ENV_CHECK" -eq "0" ]; then
             echo "WARNING: NEON_DB_CONNECTION_STRING might not be set in Cloud Run service"
-          }
+          else
+            echo "✓ NEON_DB_CONNECTION_STRING is set"
+          fi
 
           rm -f /tmp/env-vars.yaml
 

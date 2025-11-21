@@ -43,6 +43,20 @@ def _new_engine() -> AsyncEngine:
             }
         )
 
+    # Log the connection URL (masked for security)
+    db_url = settings.DATABASE_URL
+    if db_url:
+        # Mask credentials but show host and database
+        if "@" in db_url:
+            parts = db_url.split("@")
+            masked_url = f"***@{parts[-1]}" if len(parts) > 1 else "***"
+        else:
+            masked_url = "***"
+        print(f"[db] Creating engine with connection string: {masked_url}")
+        print(f"[db] Driver: {make_url(db_url).drivername}")
+        print(f"[db] Host: {make_url(db_url).host}")
+        print(f"[db] Database: {make_url(db_url).database}")
+
     url = make_url(settings.DATABASE_URL)
     connect_args = {}
 
