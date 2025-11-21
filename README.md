@@ -360,6 +360,20 @@ The project includes a CI/CD pipeline with GitHub Actions and UV optimization:
 
 \* Either all individual `NEON_DB_*` variables OR `NEON_DB_CONNECTION_STRING` must be set.
 
+#### Neon Database Permissions
+
+The database user must have CREATE privileges on the `public` schema to run migrations. If you encounter permission errors, connect to your Neon database as the owner/admin user and run:
+
+```sql
+GRANT CREATE ON SCHEMA public TO username;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO username;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO username;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO username;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO username;
+```
+
+Replace `username` with the actual database username (e.g., `gcloud`).
+
 ### Google Cloud Service Accounts
 
 The deployment uses three service accounts for security:
