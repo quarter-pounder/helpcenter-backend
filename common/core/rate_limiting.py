@@ -1,16 +1,16 @@
 """Rate limiting configuration and middleware."""
 
 import os
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 import redis.asyncio as redis
 from fastapi import HTTPException, Request
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from ..core.logger import get_logger
 
@@ -164,8 +164,10 @@ class RateLimitMiddlewareWrapper(BaseHTTPMiddleware):
             return await call_next(request)
         except Exception as exc:
             from redis.exceptions import ConnectionError as RedisConnectionError
+
             if isinstance(exc, RedisConnectionError) or (
-                isinstance(exc, AttributeError) and "'ConnectionError' object has no attribute 'detail'" in str(exc)
+                isinstance(exc, AttributeError)
+                and "'ConnectionError' object has no attribute 'detail'" in str(exc)
             ):
                 logger.warning(
                     f"Rate limiting storage unavailable, allowing request: {type(exc).__name__}",
