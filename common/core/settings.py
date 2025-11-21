@@ -30,6 +30,14 @@ NEON_DB_CONNECTION_STRING = os.getenv("NEON_DB_CONNECTION_STRING")
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 TEST_DATABASE_URL_ASYNC = os.getenv("TEST_DATABASE_URL_ASYNC")
 
+# Log environment variable presence (without sensitive data)
+# Use print for early debugging since logging may not be configured yet
+print(
+    f"[settings] Database config - ENVIRONMENT: {ENVIRONMENT}, "
+    f"NEON_DB_CONNECTION_STRING set: {bool(NEON_DB_CONNECTION_STRING)}, "
+    f"DATABASE_URL_ASYNC set: {bool(DATABASE_URL_ASYNC)}"
+)
+
 if ENVIRONMENT == "test":
     if not TEST_DATABASE_URL_ASYNC:
         # Use a default test database URL if not provided
@@ -44,8 +52,14 @@ elif NEON_DB_CONNECTION_STRING:
         DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://")
     else:
         DATABASE_URL = DATABASE_URL_ASYNC
+    # Log connection string (masked for security)
+    if DATABASE_URL:
+        masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "***"
+        print(f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}")
 elif not DATABASE_URL_ASYNC:
-    raise ValueError("DATABASE_URL_ASYNC or NEON_DB_CONNECTION_STRING must be set")
+    error_msg = "DATABASE_URL_ASYNC or NEON_DB_CONNECTION_STRING must be set"
+    print(f"[settings] ERROR: {error_msg}")
+    raise ValueError(error_msg)
 else:
     # Local development: Use DATABASE_URL_ASYNC directly
     # Convert sync URL to async format if needed
@@ -55,7 +69,9 @@ else:
         DATABASE_URL = DATABASE_URL_ASYNC
 
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL must be set")
+    error_msg = "DATABASE_URL must be set"
+    print(f"[settings] ERROR: {error_msg}")
+    raise ValueError(error_msg)
 
 # Alembic uses this for migrations (convert async URL to sync)
 ACTIVE_DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
