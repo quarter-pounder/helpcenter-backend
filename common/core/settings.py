@@ -61,10 +61,7 @@ elif NEON_DB_HOST and NEON_DB_NAME and NEON_DB_USER and NEON_DB_PASSWORD:
         f"[settings] Using individual Neon DB variables, "
         f"connecting to: {NEON_DB_HOST}/{NEON_DB_NAME}"
     )
-    print(
-        f"[settings] Username: {NEON_DB_USER}, "
-        f"Password length: {len(NEON_DB_PASSWORD)}"
-    )
+    print(f"[settings] Username: {NEON_DB_USER}, " f"Password length: {len(NEON_DB_PASSWORD)}")
 elif NEON_DB_CONNECTION_STRING:
     DATABASE_URL_ASYNC = NEON_DB_CONNECTION_STRING
 
@@ -77,9 +74,7 @@ elif NEON_DB_CONNECTION_STRING:
         raise ValueError(error_msg)
 
     if DATABASE_URL_ASYNC.startswith("postgresql://"):
-        DATABASE_URL = DATABASE_URL_ASYNC.replace(
-            "postgresql://", "postgresql+asyncpg://", 1
-        )
+        DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://", 1)
     elif DATABASE_URL_ASYNC.startswith("postgresql+asyncpg://"):
         DATABASE_URL = DATABASE_URL_ASYNC
     else:
@@ -95,12 +90,8 @@ elif NEON_DB_CONNECTION_STRING:
 
     if DATABASE_URL:
         masked_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "***"
-        print(
-            f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}"
-        )
-        conn_format = (
-            DATABASE_URL.split("://")[0] if "://" in DATABASE_URL else "unknown"
-        )
+        print(f"[settings] Using NEON_DB_CONNECTION_STRING, connecting to: {masked_url}")
+        conn_format = DATABASE_URL.split("://")[0] if "://" in DATABASE_URL else "unknown"
         print(f"[settings] Connection string format: {conn_format}")
 elif not DATABASE_URL_ASYNC:
     error_msg = (
@@ -111,9 +102,7 @@ elif not DATABASE_URL_ASYNC:
     raise ValueError(error_msg)
 else:
     if DATABASE_URL_ASYNC.startswith("postgresql://"):
-        DATABASE_URL = DATABASE_URL_ASYNC.replace(
-            "postgresql://", "postgresql+asyncpg://"
-        )
+        DATABASE_URL = DATABASE_URL_ASYNC.replace("postgresql://", "postgresql+asyncpg://")
     else:
         DATABASE_URL = DATABASE_URL_ASYNC
 
@@ -122,9 +111,7 @@ if not DATABASE_URL:
     print(f"[settings] ERROR: {error_msg}")
     raise ValueError(error_msg)
 
-ACTIVE_DATABASE_URL = DATABASE_URL.replace(
-    "postgresql+asyncpg://", "postgresql://"
-)
+ACTIVE_DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
 DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))

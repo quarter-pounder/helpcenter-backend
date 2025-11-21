@@ -95,9 +95,7 @@ def _new_engine() -> AsyncEngine:
                 f"ends: '{original_password[-1]}'"
             )
 
-        if url.query and (
-            "sslmode=require" in url.query or "channel_binding=require" in url.query
-        ):
+        if url.query and ("sslmode=require" in url.query or "channel_binding=require" in url.query):
             from urllib.parse import parse_qs, urlencode
 
             query_params = parse_qs(url.query)
