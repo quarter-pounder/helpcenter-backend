@@ -12,65 +12,21 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports: [ "5432:5432" ]
+      redis:
+        image: redis:7-alpine
+        ports: [ "6379:6379" ]
+
     steps:
       - uses: actions/checkout@v4
-
-      - name: Create Docker network
-        run: docker network create ci-net || true
-
-      - name: Start PostgreSQL
-        run: |
-          docker run --rm -d \
-            --name ci-postgres \
-            --network ci-net \
-            -e POSTGRES_PASSWORD=test \
-            -e POSTGRES_USER=test \
-            -e POSTGRES_DB=test_db \
-            -p 5432:5432 \
-            postgres:16
-
-      - name: Start Redis
-        run: |
-          docker run --rm -d \
-            --name ci-redis \
-            --network ci-net \
-            -p 6379:6379 \
-            redis:7-alpine
-
-      - name: Wait for PostgreSQL
-        run: |
-          echo "Waiting for PostgreSQL to be ready..."
-          for i in {1..60}; do
-            if docker exec ci-postgres pg_isready -U test > /dev/null 2>&1; then
-              sleep 2
-              if docker exec ci-postgres psql -U test -d test_db -c "SELECT 1" > /dev/null 2>&1; then
-                echo "PostgreSQL is ready and accepting connections"
-                exit 0
-              fi
-            fi
-            if [ $((i % 5)) -eq 0 ]; then
-              echo "Waiting for PostgreSQL... ($i/60)"
-            fi
-            sleep 1
-          done
-          echo "PostgreSQL failed to start within 60 seconds"
-          docker logs ci-postgres || true
-          exit 1
-
-      - name: Wait for Redis
-        run: |
-          for i in {1..30}; do
-            if docker exec ci-redis redis-cli ping > /dev/null 2>&1; then
-              echo "Redis is ready"
-              exit 0
-            fi
-            echo "Waiting for Redis... ($i/30)"
-            sleep 1
-          done
-          echo "Redis failed to start"
-          exit 1
-
       - uses: ./.github/actions/setup-uv
       - uses: actions/cache@v4
         with:
@@ -79,67 +35,17 @@ jobs:
             ~/.cache/uv
           key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
 
-      - name: Install workspace dependencies
-        run: uv sync --frozen
-
       - name: Lint and format ${{ inputs.module }}
         run: |
           uv run flake8 ${{ inputs.module }}/ --max-line-length=100 --ignore=E203,W503,F821,E402
           uv run black --check ${{ inputs.module }}/ --line-length=100
           uv run isort --check-only ${{ inputs.module }}/ --profile black
 
-      - name: Verify containers are running
-        if: inputs.module != 'common'
-        run: |
-          echo "Checking container status..."
-          docker ps -a | grep -E "(ci-postgres|ci-redis)" || {
-            echo "Containers not found!"
-            exit 1
-          }
-          docker ps | grep ci-postgres || {
-            echo "PostgreSQL container is not running!"
-            docker ps -a | grep ci-postgres
-            exit 1
-          }
-          echo "Containers are running"
-
-      - name: Verify database connection from host
-        if: inputs.module != 'common'
-        run: |
-          echo "Testing connection from host to PostgreSQL..."
-          for i in {1..10}; do
-            if command -v nc >/dev/null 2>&1; then
-              if nc -z localhost 5432 2>/dev/null; then
-                echo "Port 5432 is open and accepting connections"
-                break
-              fi
-            elif command -v timeout >/dev/null 2>&1; then
-              if timeout 1 bash -c "echo > /dev/tcp/localhost/5432" 2>/dev/null; then
-                echo "Port 5432 is open and accepting connections"
-                break
-              fi
-            else
-              echo "Testing via docker exec..."
-              if docker exec ci-postgres psql -U test -d test_db -c "SELECT 1" > /dev/null 2>&1; then
-                echo "Database is accessible"
-                break
-              fi
-            fi
-            if [ $i -eq 10 ]; then
-              echo "Failed to verify connection after 10 attempts"
-              docker logs ci-postgres || true
-              docker ps | grep ci-postgres || echo "Container not running!"
-              exit 1
-            fi
-            echo "Attempt $i/10, retrying..."
-            sleep 1
-          done
-          echo "Connection verification successful"
-
       - name: Run migrations for integration tests
         if: inputs.module != 'common'
         run: |
-          uv run python -m alembic -c graphql_api/alembic.ini upgrade head
+          cd graphql_api
+          uv run python -m alembic upgrade head
         env:
           TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
           ENVIRONMENT: test
@@ -155,9 +61,3 @@ jobs:
           DEV_EDITOR_KEY: test-editor-key
           GCS_BUCKET_NAME: test-bucket
           ALLOWED_ORIGINS: http://localhost:3000
-
-      - name: Cleanup containers
-        if: always()
-        run: |
-          docker stop ci-postgres ci-redis || true
-          docker network rm ci-net || true
