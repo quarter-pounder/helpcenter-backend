@@ -142,9 +142,7 @@ jobs:
             ~/.cache/uv
           key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
       - name: Run DB migrations
-        run: |
-          cd graphql_api
-          uv run python -m alembic upgrade head
+        run: uv run python -m alembic upgrade head
         env:
           TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
           ENVIRONMENT: test

@@ -43,9 +43,7 @@ jobs:
 
       - name: Run migrations for integration tests
         if: inputs.module != 'common'
-        run: |
-          cd graphql_api
-          uv run python -m alembic upgrade head
+        run: uv run python -m alembic upgrade head
         env:
           TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
           ENVIRONMENT: test
