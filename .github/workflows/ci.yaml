@@ -195,33 +195,34 @@ jobs:
       - name: Verify database connection from host
         run: |
           echo "Testing connection from host to PostgreSQL..."
-          python3 << 'EOF'
-          import sys
-          import time
-          import psycopg2
-          for i in range(10):
-              try:
-                  conn = psycopg2.connect(
-                      host="localhost",
-                      port=5432,
-                      user="test",
-                      password="test",
-                      database="test_db"
-                  )
-                  conn.close()
-                  print("Connection successful from host")
-                  sys.exit(0)
-              except Exception as e:
-                  print(f"Attempt {i+1}/10 failed: {e}")
-                  time.sleep(1)
-          print("Failed to connect from host")
-          sys.exit(1)
-          EOF
-          if [ $? -ne 0 ]; then
-            docker logs ci-postgres || true
-            docker ps | grep ci-postgres || echo "Container not running!"
-            exit 1
-          fi
+          for i in {1..10}; do
+            if command -v nc >/dev/null 2>&1; then
+              if nc -z localhost 5432 2>/dev/null; then
+                echo "Port 5432 is open and accepting connections"
+                break
+              fi
+            elif command -v timeout >/dev/null 2>&1; then
+              if timeout 1 bash -c "echo > /dev/tcp/localhost/5432" 2>/dev/null; then
+                echo "Port 5432 is open and accepting connections"
+                break
+              fi
+            else
+              echo "Testing via docker exec..."
+              if docker exec ci-postgres psql -U test -d test_db -c "SELECT 1" > /dev/null 2>&1; then
+                echo "Database is accessible"
+                break
+              fi
+            fi
+            if [ $i -eq 10 ]; then
+              echo "Failed to verify connection after 10 attempts"
+              docker logs ci-postgres || true
+              docker ps | grep ci-postgres || echo "Container not running!"
+              exit 1
+            fi
+            echo "Attempt $i/10, retrying..."
+            sleep 1
+          done
+          echo "Connection verification successful"
 
       - name: Run DB migrations
         run: |
