@@ -84,9 +84,10 @@ def _new_engine() -> AsyncEngine:
 
         # Remove SSL parameters from URL to avoid conflicts with asyncpg
         # asyncpg doesn't support sslmode or channel_binding URL parameters
-        from urllib.parse import parse_qs, urlencode
+        # IMPORTANT: Use string manipulation only to preserve password integrity
+        # urlparse/urlunparse can corrupt passwords with special characters
 
-        # Verify password is present before parsing
+        # Verify password is present before processing
         original_username = url.username
         original_password = url.password
         print(f"[db] Original username: {original_username}")
@@ -101,61 +102,42 @@ def _new_engine() -> AsyncEngine:
                 f"[db] Password starts: '{original_password[0]}', ends: '{original_password[-1]}'"
             )
 
-        # Instead of using urlparse/urlunparse which can corrupt passwords,
-        # use simple string replacement to remove SSL parameters
-        # This preserves the password exactly as it is
-        clean_url_str = url_str
+        # Remove SSL parameters from query string using URL object's set() method
+        # This preserves the password by working with the already-parsed URL object
+        # instead of re-parsing a string
+        if url.query and ("sslmode=require" in url.query or "channel_binding=require" in url.query):
+            from urllib.parse import parse_qs, urlencode
 
-        # Remove sslmode and channel_binding parameters
-        if "?" in clean_url_str:
-            # Split into base URL and query string
-            base_url, query_string = clean_url_str.split("?", 1)
-            # Parse query parameters
-            query_params = parse_qs(query_string)
-            # Remove SSL-related parameters
+            query_params = parse_qs(url.query)
             query_params.pop("sslmode", None)
             query_params.pop("channel_binding", None)
+
             # Rebuild query string
             if query_params:
                 new_query = urlencode(query_params, doseq=True)
-                clean_url_str = f"{base_url}?{new_query}"
+                # Use URL.set() to modify only the query, preserving password
+                url = url.set(query=new_query)
             else:
-                # No query params left, remove the ?
-                clean_url_str = base_url
-        else:
-            # No query string, nothing to clean
-            clean_url_str = url_str
+                # No query params left, remove query entirely
+                url = url.set(query=None)
 
-        url = make_url(clean_url_str)
-
-        # Verify password is still present after parsing
-        if url.password != original_password:
-            new_password_len = len(url.password) if url.password else 0
-            print(
-                f"[db] ERROR: Password changed during URL cleaning! "
-                f"Original length: {len(original_password) if original_password else 0}, "
-                f"New length: {new_password_len}"
-            )
-            print(f"[db] Original password (first 3): '{original_password[:3]}...'")
-            print(
-                f"[db] New password (first 3): '{url.password[:3] if url.password else 'None'}...'"
-            )
-            # Use original URL if password was corrupted
-            print("[db] Using original URL to preserve password")
-            url = make_url(url_str.split("?")[0])  # Use base URL without query params
-            # Manually remove SSL params from query if needed, but preserve netloc
-            if "?" in url_str:
-                base, query = url_str.split("?", 1)
-                params = parse_qs(query)
-                params.pop("sslmode", None)
-                params.pop("channel_binding", None)
-                if params:
-                    clean_query = urlencode(params, doseq=True)
-                    url = make_url(f"{base}?{clean_query}")
-                else:
-                    url = make_url(base)
-        elif url.password:
-            print(f"[db] Password preserved after URL cleaning, length: {len(url.password)}")
+            # Verify password is still intact
+            if url.password != original_password:
+                new_password_len = len(url.password) if url.password else 0
+                print(
+                    f"[db] ERROR: Password changed during query cleaning! "
+                    f"Original length: {len(original_password) if original_password else 0}, "
+                    f"New length: {new_password_len}"
+                )
+                # Restore original URL if password was corrupted
+                print("[db] Restoring original URL to preserve password")
+                url = make_url(settings.DATABASE_URL)
+                # Remove query params by using base URL only
+                if "?" in settings.DATABASE_URL:
+                    base_url = settings.DATABASE_URL.split("?")[0]
+                    url = make_url(base_url)
+            elif url.password:
+                print(f"[db] Password preserved after query cleaning, length: {len(url.password)}")
 
         port_str = url.port or 5432
         print(
