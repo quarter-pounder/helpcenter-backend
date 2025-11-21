@@ -206,7 +206,7 @@ jobs:
   # ------------------------------------
   deploy-graphql:
     needs: [changes, test-common, test-graphql, test-integration, security]
-    uses: ./.github/workflows/cloudrun-deploy.yaml
+    uses: ./.github/workflows/deploy.yaml
     with:
       service: graphql_api
     secrets: inherit
@@ -230,7 +230,7 @@ jobs:
   # ------------------------------------
   deploy-editor:
     needs: [changes, test-common, test-editor, test-integration, security]
-    uses: ./.github/workflows/cloudrun-deploy.yaml
+    uses: ./.github/workflows/deploy.yaml
     with:
       service: editor_api
     secrets: inherit

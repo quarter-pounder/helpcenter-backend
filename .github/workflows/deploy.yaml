@@ -1,0 +1,137 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.HELPCENTER_CICD }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build and push Docker image
+        id: build
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        run: |
+          PROJECT_ID="${{ secrets.GOOGLE_CLOUD_PROJECT }}"
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
+          IMAGE_TAG="${{ github.sha }}"
+
+          if [[ "${{ inputs.service }}" == "graphql_api" ]]; then
+            IMAGE_NAME="helpcenter-graphql-api"
+            DOCKERFILE="Dockerfile.uv"
+          elif [[ "${{ inputs.service }}" == "editor_api" ]]; then
+            IMAGE_NAME="helpcenter-editor-api"
+            DOCKERFILE="editor_api/Dockerfile.uv"
+          else
+            echo "Unknown service: ${{ inputs.service }}"
+            exit 1
+          fi
+
+          IMAGE_URI="gcr.io/${PROJECT_ID}/${IMAGE_NAME}"
+          SERVICE_NAME="${IMAGE_NAME}-${ENVIRONMENT}"
+
+          echo "Building Docker image: ${IMAGE_URI}:${IMAGE_TAG}"
+          docker build \
+            -f "${DOCKERFILE}" \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            --build-arg ENVIRONMENT="${ENVIRONMENT}" \
+            .
+
+          echo "Pushing Docker image..."
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+          echo "image_uri=${IMAGE_URI}:${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "service_name=${SERVICE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Cloud Run
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          GOOGLE_CLOUD_REGION: ${{ secrets.GOOGLE_CLOUD_REGION }}
+          NEON_DB_CONNECTION_STRING: ${{ secrets.NEON_DB_CONNECTION_STRING }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          DEV_EDITOR_KEY: ${{ secrets.DEV_EDITOR_KEY }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          HELPCENTER_GCS: ${{ secrets.HELPCENTER_GCS }}
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
+        run: |
+          PROJECT_ID="${{ secrets.GOOGLE_CLOUD_PROJECT }}"
+          REGION="${{ secrets.GOOGLE_CLOUD_REGION }}"
+          ENVIRONMENT="${{ steps.env.outputs.environment }}"
+          SERVICE_NAME="${{ steps.build.outputs.service_name }}"
+          IMAGE_URI="${{ steps.build.outputs.image_uri }}"
+
+          python3 << 'PYTHON_EOF'
+          import yaml
+          import os
+
+          env_vars = {
+              'ENVIRONMENT': os.environ.get('ENVIRONMENT', ''),
+              'NEON_DB_CONNECTION_STRING': os.environ.get('NEON_DB_CONNECTION_STRING', ''),
+              'REDIS_URL': os.environ.get('REDIS_URL', ''),
+              'SECRET_KEY': os.environ.get('SECRET_KEY', ''),
+              'DEV_EDITOR_KEY': os.environ.get('DEV_EDITOR_KEY', ''),
+              'GCS_BUCKET_NAME': os.environ.get('GCS_BUCKET_NAME', ''),
+              'HELPCENTER_GCS': os.environ.get('HELPCENTER_GCS', ''),
+              'ALLOWED_ORIGINS': os.environ.get('ALLOWED_ORIGINS', ''),
+          }
+
+          with open('/tmp/env-vars.yaml', 'w') as f:
+              yaml.dump(env_vars, f, default_flow_style=False, allow_unicode=True)
+          PYTHON_EOF
+
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "${IMAGE_URI}" \
+            --platform managed \
+            --region "${REGION}" \
+            --allow-unauthenticated \
+            --service-account=helpcenter-runtime@${PROJECT_ID}.iam.gserviceaccount.com \
+            --env-vars-file=/tmp/env-vars.yaml \
+            --memory 1Gi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 10 \
+            --timeout 300 \
+            --concurrency 100
+
+          rm -f /tmp/env-vars.yaml
+
+      - name: Output deployed URL
+        run: |
+          SERVICE="helpcenter-${{ inputs.service }}-${{ steps.env.outputs.environment }}"
+          URL=$(gcloud run services describe "$SERVICE" \
+            --region="${{ secrets.GOOGLE_CLOUD_REGION }}" \
+            --format="value(status.url)" || true)
+          echo "Deployed URL: ${URL:-<not found>}"
