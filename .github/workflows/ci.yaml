@@ -136,15 +136,22 @@ jobs:
 
       - name: Wait for PostgreSQL
         run: |
-          for i in {1..30}; do
+          echo "Waiting for PostgreSQL to be ready..."
+          for i in {1..60}; do
             if docker exec ci-postgres pg_isready -U test > /dev/null 2>&1; then
-              echo "PostgreSQL is ready"
-              exit 0
+              sleep 2
+              if docker exec ci-postgres psql -U test -d test_db -c "SELECT 1" > /dev/null 2>&1; then
+                echo "PostgreSQL is ready and accepting connections"
+                exit 0
+              fi
             fi
-            echo "Waiting for PostgreSQL... ($i/30)"
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "Waiting for PostgreSQL... ($i/60)"
+            fi
             sleep 1
           done
-          echo "PostgreSQL failed to start"
+          echo "PostgreSQL failed to start within 60 seconds"
+          docker logs ci-postgres || true
           exit 1
 
       - name: Wait for Redis
@@ -170,6 +177,14 @@ jobs:
 
       - name: Install workspace dependencies
         run: uv sync --frozen
+
+      - name: Verify database connection
+        run: |
+          docker exec ci-postgres psql -U test -d test_db -c "SELECT version();" || {
+            echo "Database connection verification failed"
+            docker logs ci-postgres
+            exit 1
+          }
 
       - name: Run DB migrations
         run: |
