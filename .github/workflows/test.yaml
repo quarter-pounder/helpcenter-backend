@@ -88,14 +88,52 @@ jobs:
           uv run black --check ${{ inputs.module }}/ --line-length=100
           uv run isort --check-only ${{ inputs.module }}/ --profile black
 
-      - name: Verify database connection
+      - name: Verify containers are running
         if: inputs.module != 'common'
         run: |
-          docker exec ci-postgres psql -U test -d test_db -c "SELECT version();" || {
-            echo "Database connection verification failed"
-            docker logs ci-postgres
+          echo "Checking container status..."
+          docker ps -a | grep -E "(ci-postgres|ci-redis)" || {
+            echo "Containers not found!"
             exit 1
           }
+          docker ps | grep ci-postgres || {
+            echo "PostgreSQL container is not running!"
+            docker ps -a | grep ci-postgres
+            exit 1
+          }
+          echo "Containers are running"
+
+      - name: Verify database connection from host
+        if: inputs.module != 'common'
+        run: |
+          echo "Testing connection from host to PostgreSQL..."
+          python3 << 'EOF'
+          import sys
+          import time
+          import psycopg2
+          for i in range(10):
+              try:
+                  conn = psycopg2.connect(
+                      host="localhost",
+                      port=5432,
+                      user="test",
+                      password="test",
+                      database="test_db"
+                  )
+                  conn.close()
+                  print("Connection successful from host")
+                  sys.exit(0)
+              except Exception as e:
+                  print(f"Attempt {i+1}/10 failed: {e}")
+                  time.sleep(1)
+          print("Failed to connect from host")
+          sys.exit(1)
+          EOF
+          if [ $? -ne 0 ]; then
+            docker logs ci-postgres || true
+            docker ps | grep ci-postgres || echo "Container not running!"
+            exit 1
+          fi
 
       - name: Run migrations for integration tests
         if: inputs.module != 'common'
