@@ -72,6 +72,9 @@ jobs:
             ~/.cache/uv
           key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
 
+      - name: Install workspace dependencies
+        run: uv sync --frozen
+
       - name: Lint and format ${{ inputs.module }}
         run: |
           uv run flake8 ${{ inputs.module }}/ --max-line-length=100 --ignore=E203,W503,F821,E402
@@ -81,8 +84,7 @@ jobs:
       - name: Run migrations for integration tests
         if: inputs.module != 'common'
         run: |
-          cd graphql_api
-          uv run python -m alembic upgrade head
+          uv run python -m alembic -c graphql_api/alembic.ini upgrade head
         env:
           TEST_DATABASE_URL_ASYNC: postgresql+asyncpg://test:test@localhost:5432/test_db
           ENVIRONMENT: test
