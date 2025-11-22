@@ -157,23 +157,3 @@ class MediaService:
         guides_list = result.scalars().all()
 
         return [GuideReadDTO.model_validate(guide) for guide in guides_list]
-
-    def get_optimized_url(self, url: str, width: int = None, height: int = None) -> str:
-        """Get optimized image URL from Google Cloud Storage."""
-        # For GCS, we can use signed URLs with parameters for basic optimization
-        # Production: consider Google Cloud CDN or ImageKit
-        if self.gcs_client and "storage.googleapis.com" in url:
-            try:
-                # Extract bucket and blob name from URL
-                bucket_name = url.split("//")[1].split(".")[0]
-                blob_name = url.split(f"{bucket_name}/")[-1]
-
-                bucket = self.gcs_client.bucket(bucket_name)
-                blob = bucket.blob(blob_name)
-
-                # Generate signed URL with expiration (1 hour)
-                url = blob.generate_signed_url(version="v4", expiration=3600, method="GET")
-            except Exception:
-                pass  # Return original URL if signing fails
-
-        return url

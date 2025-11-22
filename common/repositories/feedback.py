@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select as sa_select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ..domain.dtos.feedback import FeedbackReadDTO
+from ..domain.dtos.feedback import FeedbackCreateDTO, FeedbackReadDTO
 from ..domain.models import Feedback as FeedbackModel
 from .base import BaseRepository
 
@@ -12,6 +12,12 @@ from .base import BaseRepository
 class FeedbackRepository(BaseRepository[FeedbackModel]):
     def __init__(self):
         super().__init__(FeedbackModel)
+
+    async def create_from_dto(self, session: AsyncSession, dto: FeedbackCreateDTO) -> FeedbackModel:
+        """Stage a new Feedback from DTO. Caller must commit/refresh."""
+        obj = FeedbackModel(**dto.model_dump())
+        session.add(obj)
+        return obj
 
     async def get_read(self, session: AsyncSession, id: UUID) -> Optional[FeedbackReadDTO]:
         stmt = sa_select(FeedbackModel).where(FeedbackModel.id == id)
