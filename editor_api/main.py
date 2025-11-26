@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from common.core.logger import setup_logging
 from common.core.middleware import RequestLoggingMiddleware
 from common.core.rate_limiting import setup_rate_limiting
+from common.core.security import SecurityHeadersMiddleware, StrictOriginValidationMiddleware
 from common.core.settings import ALLOWED_ORIGINS, ENVIRONMENT, LOG_LEVEL
 from common.domain.rest import (
     categories_router,
@@ -24,6 +25,12 @@ app = FastAPI(
     description="Editor API for help center content management",
     version="1.0.0",
 )
+# Security: Strict origin validation (must be before CORS)
+app.add_middleware(StrictOriginValidationMiddleware, allowed_origins=ALLOWED_ORIGINS)
+
+# Security: Security headers
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,

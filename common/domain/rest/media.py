@@ -10,6 +10,7 @@ from ...core.rate_limiting import (
     rate_limit_dev_editor_upload,
     rate_limit_dev_editor_write,
 )
+from ...core.validation import validate_file_upload
 from ...services.media import MediaService
 from ..dtos.media import MediaReadDTO
 from .editor_guard import verify_dev_editor_key
@@ -33,8 +34,20 @@ async def upload_media(
     session: AsyncSession = Depends(get_session_dependency),
 ):
     """Upload media file for a guide."""
-    if not file.content_type.startswith(("image/", "video/")):
-        raise HTTPException(status_code=400, detail="Only image and video files are allowed")
+    # Validate file upload
+    file_content = await file.read()
+    file_size = len(file_content)
+
+    # Reset file pointer for service
+    await file.seek(0)
+
+    # Validate file using comprehensive validation
+    validate_file_upload(
+        filename=file.filename or "unknown",
+        content_type=file.content_type or "application/octet-stream",
+        file_size=file_size,
+        max_size=10 * 1024 * 1024,  # 10MB
+    )
 
     return await service.upload_media(session, file, alt, str(guide_id))
 

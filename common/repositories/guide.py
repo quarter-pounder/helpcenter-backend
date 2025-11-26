@@ -43,7 +43,13 @@ class GuideRepository(BaseRepository[GuideModel]):
         self, session: AsyncSession, id: UUID, dto: GuideUpdateDTO
     ) -> Optional[GuideModel]:
         """Update a guide from DTO with category and media associations."""
-        guide = await session.get(GuideModel, id)
+        stmt = (
+            sa_select(GuideModel)
+            .options(selectinload(GuideModel.categories), selectinload(GuideModel.media))
+            .where(GuideModel.id == id)
+        )
+        result = await session.execute(stmt)
+        guide = result.scalars().first()
         if not guide:
             return None
 
