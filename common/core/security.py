@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..core.logger import get_logger
-from ..core.settings import ALLOWED_ORIGINS, ENVIRONMENT
+from ..core.settings import ENVIRONMENT
 
 logger = get_logger("security")
 
@@ -147,4 +147,3 @@ def constant_time_compare(a: str, b: str) -> bool:
     Use this instead of == for comparing secrets, API keys, etc.
     """
     return secrets.compare_digest(a, b)
-

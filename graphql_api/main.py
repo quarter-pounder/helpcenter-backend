@@ -12,7 +12,10 @@ from common.core.db import get_session
 from common.core.logger import get_correlation_id, get_logger, setup_logging
 from common.core.middleware import RequestLoggingMiddleware
 from common.core.rate_limiting import limiter, setup_rate_limiting
-from common.core.security import SecurityHeadersMiddleware, StrictOriginValidationMiddleware
+from common.core.security import (
+    SecurityHeadersMiddleware,
+    StrictOriginValidationMiddleware,
+)
 from common.core.settings import ALLOWED_ORIGINS, ENVIRONMENT, LOG_LEVEL
 from common.core.validation import create_error_response, handle_validation_error
 from common.domain.resolvers import Mutation, Query
@@ -127,8 +130,6 @@ async def graphql_options():
 
 
 app.include_router(graphql_app, prefix="/graphql")
-
-
 
 
 @app.get("/health")

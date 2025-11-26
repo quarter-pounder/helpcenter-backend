@@ -9,7 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from common.core.logger import setup_logging
 from common.core.middleware import RequestLoggingMiddleware
 from common.core.rate_limiting import setup_rate_limiting
-from common.core.security import SecurityHeadersMiddleware, StrictOriginValidationMiddleware
+from common.core.security import (
+    SecurityHeadersMiddleware,
+    StrictOriginValidationMiddleware,
+)
 from common.core.settings import ALLOWED_ORIGINS, ENVIRONMENT, LOG_LEVEL
 from common.domain.rest import (
     categories_router,
