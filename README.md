@@ -28,7 +28,7 @@ helpcenter-backend/
 │   ├── migrations/           # Database migrations
 │   ├── pyproject.toml        # GraphQL API dependencies
 │   └── Dockerfile.uv         # UV-optimized container
-├── editor_api/               # Private REST API (Cloud Function)
+├── editor_api/               # Private REST API (Cloud Run)
 │   ├── main.py               # FastAPI app with REST endpoints
 │   ├── pyproject.toml        # Editor API dependencies
 │   └── Dockerfile.uv         # UV-optimized container
@@ -54,9 +54,9 @@ helpcenter-backend/
 
 #### 2. Editor API (Private)
 - **Purpose**: Content management operations
-- **Deployment**: Google Cloud Function
-- **Endpoints**: `/dev-editor/*`
-- **Authentication**: API key (`x-dev-editor-key` header)
+- **Deployment**: Google Cloud Run
+- **Endpoints**: `/editor/*`
+- **Authentication**: API key (`x-editor-key` header)
 
 #### 3. Common Package
 - **Purpose**: Shared code between services
@@ -69,7 +69,7 @@ helpcenter-backend/
 - **Database**: Neon DB (PostgreSQL) with connection pooling
 - **Cache**: Redis for rate limiting and session management
 - **Media Storage**: Google Cloud Storage
-- **Deployment**: Google Cloud Run + Cloud Functions with automated CI/CD
+- **Deployment**: Google Cloud Run with automated CI/CD
 - **CI/CD**: GitHub Actions with environment-specific deployments and UV setup
 - **Dependency Management**: UV (fast, modern Python package manager with lock files)
 - **Testing**: pytest with proper unit/integration test separation
