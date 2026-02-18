@@ -18,6 +18,9 @@ from sqlalchemy.pool.impl import AsyncAdaptedQueuePool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from . import settings
+from .logger import get_logger
+
+logger = get_logger("db")
 
 _engine: Optional[AsyncEngine] = None
 _async_session_factory: Optional[async_sessionmaker[SQLAlchemyAsyncSession]] = None
@@ -52,18 +55,25 @@ def _new_engine() -> AsyncEngine:
             masked_url = f"***@{parts[-1]}" if len(parts) > 1 else "***"
         else:
             masked_url = "***"
-        print(f"[db] Creating engine with connection string: {masked_url}")
-        print(f"[db] Driver: {make_url(db_url).drivername}")
-        print(f"[db] Host: {make_url(db_url).host}")
-        print(f"[db] Database: {make_url(db_url).database}")
+        logger.debug(
+            "Creating engine",
+            extra={
+                "connection_masked": masked_url,
+                "driver": make_url(db_url).drivername,
+                "host": make_url(db_url).host,
+                "database": make_url(db_url).database,
+            },
+        )
 
     url = make_url(settings.DATABASE_URL)
     connect_args = {}
 
     # Log connection details (without password)
     port = url.port or 5432
-    print(f"[db] Connecting as user: {url.username}")
-    print(f"[db] Host: {url.host}, Port: {port}, Database: {url.database}")
+    logger.debug(
+        "Connecting",
+        extra={"user": url.username, "host": url.host, "port": port, "database": url.database},
+    )
 
     # Handle asyncpg + Neon DB SSL parameters
     if url.drivername.startswith("postgresql+asyncpg"):
@@ -80,14 +90,16 @@ def _new_engine() -> AsyncEngine:
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             connect_args["ssl"] = ssl_context
-            print("[db] SSL context configured for Neon/secure connection")
+            logger.debug("SSL context configured for Neon/secure connection")
 
         original_username = url.username
         original_password = url.password
-        print(f"[db] Original username: {original_username}")
-        print(f"[db] Original password present: {bool(original_password)}")
+        logger.debug(
+            "URL credentials",
+            extra={"username": original_username, "password_set": bool(original_password)},
+        )
         if original_password and original_password != original_password.strip():
-            print("[db] WARNING: Password has leading/trailing whitespace!")
+            logger.warning("Password has leading/trailing whitespace")
 
         if url.query and ("sslmode=require" in url.query or "channel_binding=require" in url.query):
             from urllib.parse import parse_qs, urlencode
@@ -103,46 +115,45 @@ def _new_engine() -> AsyncEngine:
                 url = url.set(query=None)
 
             if url.password != original_password:
-                print("[db] ERROR: Password changed during query cleaning!")
-                print("[db] Restoring original URL to preserve password")
+                logger.error("Password changed during query cleaning; restoring original URL")
                 url = make_url(settings.DATABASE_URL)
                 if "?" in settings.DATABASE_URL:
                     base_url = settings.DATABASE_URL.split("?")[0]
                     url = make_url(base_url)
             elif url.password:
-                print("[db] Password preserved after query cleaning")
+                logger.debug("Password preserved after query cleaning")
 
         port_str = url.port or 5432
-        print(
-            f"[db] Cleaned URL (removed sslmode/channel_binding): "
-            f"{url.drivername}://{url.username}:***@{url.host}:{port_str}/{url.database}"
+        logger.debug(
+            "Cleaned URL (removed sslmode/channel_binding)",
+            extra={
+                "url_masked": f"{url.drivername}://{url.username}:***@{url.host}:{port_str}/{url.database}",
+                "password_present": bool(url.password),
+            },
         )
-        print(f"[db] Password still present after cleaning: {bool(url.password)}")
 
     try:
         engine = create_async_engine(url, connect_args=connect_args, **kwargs)
-        print("[db] Engine created successfully")
+        logger.info("Engine created successfully")
         return engine
     except Exception as e:
         error_type = type(e).__name__
         error_msg = str(e)
-        print(f"[db] ERROR creating engine: {error_type}: {error_msg}")
-
         port = url.port or 5432
-        print(
-            f"[db] Connection URL (masked): "
-            f"{url.drivername}://{url.username}:***@{url.host}:{port}/{url.database}"
+        logger.error(
+            "Failed to create engine",
+            extra={
+                "error_type": error_type,
+                "error_message": error_msg,
+                "url_masked": f"{url.drivername}://{url.username}:***@{url.host}:{port}/{url.database}",
+            },
         )
-
         if (
             "password authentication failed" in error_msg.lower()
             or "authentication failed" in error_msg.lower()
         ):
-            print(
-                "[db] AUTHENTICATION ERROR: Check that: "
-                "1) Password matches the user password in Neon, "
-                "2) Password is URL-encoded if it contains special characters, "
-                "3) User has correct permissions in Neon"
+            logger.warning(
+                "Authentication error: check Neon password, URL-encoding of special chars, and user permissions"
             )
 
         raise
