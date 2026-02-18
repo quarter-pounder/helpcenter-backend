@@ -18,6 +18,10 @@ if not os.getenv("DOCKER_ENV"):
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
+# When tests run, conftest sets ENVIRONMENT=test. As a fallback, if settings are
+# imported after pytest has been loaded (e.g. by a test or plugin), force test env
+# so DB and other config use test defaults. Prefer setting ENVIRONMENT=test in
+# conftest or test entrypoint when possible.
 if "pytest" in sys.modules:
     ENVIRONMENT = "test"
 
