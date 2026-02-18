@@ -82,7 +82,7 @@ class StrictOriginValidationMiddleware(BaseHTTPMiddleware):
                 normalized_referer = self._normalize_origin(referer_origin)
                 if normalized_referer in self.allowed_origins:
                     return True
-            except Exception:
+            except ValueError:
                 pass
 
         return False
