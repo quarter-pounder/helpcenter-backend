@@ -19,9 +19,9 @@ runs:
         path: |
           ~/.cache/uv
           .venv
-        key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock') }}
+        key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION || '3.11' }}-${{ hashFiles('uv.lock') }}
         restore-keys: |
-          uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-
+          uv-${{ runner.os }}-${{ env.PYTHON_VERSION || '3.11' }}-
 
     - name: Install dependencies
       shell: bash
